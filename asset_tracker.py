@@ -134,7 +134,7 @@ if user_ticker:
     selected_assets = list(set(selected_assets))  # De-duplicate nicely
 
 # Moving Averages (not yet implemented)
-ma_periods = st.sidebar.multiselect("Select MA periods", [20, 50, 100, 200], default=[50, 200])
+# ma_periods = st.sidebar.multiselect("Select MA periods", [20, 50, 100, 200], default=[50, 200])
 
 # --- Date Calculation based on user selected range option ---
 days_back = range_options[selected_range]
