@@ -22,3 +22,7 @@ Thumbs.db
 
 # pyenv / pipenv / poetry artifacts
 *.lock
+
+# Untracked Local
+alpha_tracker.py
+twelve_data_tracker.py
