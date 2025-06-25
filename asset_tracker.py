@@ -37,9 +37,13 @@ st.set_page_config(layout="wide")
 st.title("📈 Asset Comparison")
 st.caption(f"Last Updated: {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
 
+# --- Session state flag for update control ---
+if "update_graph" not in st.session_state:
+    st.session_state.update_graph = False
+
 # --- User Selected Options. Must be valid Ticker Symbol ---
 tickers = ["SPY", "BTC-USD", "FBTC", "ETH-USD", "DX-Y.NYB", "GC=F", "SOL-USD", "EFA", "QQQ", "STRK", "FDGRX", "FBAKX"]
-default_tickers = ["SPY", "BTC-USD"]
+default_tickers = ["SPY", "BTC-USD", "EFA"]
 
 # --- Test for connection and / or rate limiting issues ---
 @st.cache_data(ttl=3600)  # Cache for 1 hour
@@ -115,103 +119,99 @@ range_options = {
     "5 Years": (365*5)
 }
 
-# --- Sidebar: Date Range Selection ---
-# st.sidebar.header("🔍 Filters")
+# --- Create sidebar Widgets ---
+with st.sidebar:
+    view = st.radio("Select View", ["Price (USD)", "Normalized % Change"], index=1)
+    selected_range = st.selectbox("Select Time Range", options=list(range_options.keys()))
+    selected_assets = st.multiselect("Select Assets", options=list(tickers), default=default_tickers)
 
-selected_range = st.sidebar.selectbox("Select Time Range", options=list(range_options.keys()))
+    user_ticker = st.text_input("User ticker", placeholder="e.g., TSLA")
+    if user_ticker:
+        user_ticker = user_ticker.strip().upper()
+        selected_assets.append(user_ticker)
+        selected_assets = list(set(selected_assets))  # De-duplicate nicely
+   
+    st.write("")
+    update_clicked = st.button("🔄 Update Graph 🔄")
 
-# View mode toggle
-view = st.sidebar.radio("Select View", ["Price (USD)", "Normalized % Change"], index=1)
+# --- Logic only runs if button pressed, button resets to False after each pass ---
+if update_clicked:
 
-# Asset selection
-selected_assets = st.sidebar.multiselect("Select Assets", options=list(tickers), default=default_tickers)
+    # --- Date Calculations based on user selected range option ---
+    days_back = range_options[selected_range]
+    start_date = date.today() - timedelta(days=days_back)
+    adj_date = adjust_for_non_trading_day(start_date)
 
-# --- Check for user added custom ticker ---
-user_ticker = st.sidebar.text_input("User ticker:", placeholder="e.g., TSLA")
-if user_ticker:
-    user_ticker = user_ticker.strip().upper()
-    selected_assets.append(user_ticker)
-    selected_assets = list(set(selected_assets))  # De-duplicate nicely
+    # --- Test for connection issues ---
+    check_yfinance_connection()
 
-# Moving Averages (not yet implemented)
-# ma_periods = st.sidebar.multiselect("Select MA periods", [20, 50, 100, 200], default=[50, 200])
+    # --- Validate selected tickers ---
+    validate_assets(selected_assets)
 
-# --- Date Calculation based on user selected range option ---
-days_back = range_options[selected_range]
+    # --- Data Download (only selected tickers) ---
+    if selected_assets:
+        data = get_data(selected_assets, adj_date)
+    else:
+        st.warning("Please select at least one ticker.")
+        st.stop()
 
-start_date = date.today() - timedelta(days=days_back)
-# start_date = date_local - timedelta(days=days_back)
+    # Forward-fill missing values for non-trading days
+    # Combine into one DataFrame and trim rows before adjusted start_date
+    # Filter by user-selected assets. Include assets with data gaps
+    combined = pd.DataFrame(data).ffill()
+    combined = combined[combined.index >= pd.to_datetime(start_date)]
+    filtered_data = combined[selected_assets]
 
-# Adjust actual start_date if today - selected_range date falls on a weekend
-adj_date = adjust_for_non_trading_day(start_date)
+    # --- Patch last row with real-time data for 24/7 tickers like BTC-USD ---
+    for ticker in selected_assets:
+        if "-USD" in ticker:
+            try:
+                realtime_price = yf.Ticker(ticker).info.get("regularMarketPrice")
+                if pd.notna(realtime_price):
+                    # Make sure the DataFrame index is a DatetimeIndex (safety check)
+                    if not isinstance(filtered_data.index, pd.DatetimeIndex):
+                        filtered_data.index = pd.to_datetime(filtered_data.index)
 
-# --- Test for connection issues ---
-check_yfinance_connection()
+                    # If last known data date is before today, append new row
+                    if filtered_data.index[-1].date() < local_today:
+                        new_row = pd.DataFrame({ticker: realtime_price}, index=[pd.Timestamp(local_today)])
+                        filtered_data = pd.concat([filtered_data, new_row])
+                    else:
+                        # If the row for today exists, just update the price
+                        filtered_data.loc[filtered_data.index[-1], ticker] = realtime_price
+            except Exception as e:
+                print(f"Error updating {ticker} with real-time price: {e}")
 
-# --- Validate selected tickers ---
-validate_assets(selected_assets)
+    # print(filtered_data)
 
-# --- Data Download (only selected tickers) ---
-if selected_assets:
-    data = get_data(selected_assets, adj_date)
-else:
-    st.warning("Please select at least one ticker.")
-    st.stop()
+    # --- Normalize Data ---
+    if view == "Normalized % Change":
+        baseline = filtered_data.apply(lambda col: col.loc[col.first_valid_index()])
+        baseline = baseline.replace(0, 1e-8)
+        chart_data = (filtered_data / baseline - 1) * 100
+    else:
+        chart_data = filtered_data.copy()
 
-# Forward-fill missing values for non-trading days
-# Combine into one DataFrame and trim rows before adjusted start_date
-# Filter by user-selected assets. Include assets with data gaps
-combined = pd.DataFrame(data).ffill()
-combined = combined[combined.index >= pd.to_datetime(start_date)]
-filtered_data = combined[selected_assets]
+    # print(chart_data)
 
-# --- Patch last row with real-time data for 24/7 tickers like BTC-USD ---
-for ticker in selected_assets:
-    if "-USD" in ticker:
-        try:
-            realtime_price = yf.Ticker(ticker).info.get("regularMarketPrice")
-            if pd.notna(realtime_price):
-                # Make sure the DataFrame index is a DatetimeIndex (safety check)
-                if not isinstance(filtered_data.index, pd.DatetimeIndex):
-                    filtered_data.index = pd.to_datetime(filtered_data.index)
+    # --- Altair Chart ---
+    chart_df = chart_data.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
 
-                # If last known data date is before today, append new row
-                if filtered_data.index[-1].date() < local_today:
-                    new_row = pd.DataFrame({ticker: realtime_price}, index=[pd.Timestamp(local_today)])
-                    filtered_data = pd.concat([filtered_data, new_row])
-                else:
-                    # If the row for today exists, just update the price
-                    filtered_data.loc[filtered_data.index[-1], ticker] = realtime_price
-        except Exception as e:
-            print(f"Error updating {ticker} with real-time price: {e}")
+    y_axis = alt.Y(
+        "Value:Q",
+        title="% Change" if view == "Normalized % Change" else "Price (USD)",
+    )
 
-# print(filtered_data)
+    chart = alt.Chart(chart_df).mark_line().encode(
+        x="Date:T",
+        y=y_axis,
+        color="Asset:N"
+    ).properties(width=800, height=600).interactive()
 
-# --- Normalize Data ---
-if view == "Normalized % Change":
-    baseline = filtered_data.apply(lambda col: col.loc[col.first_valid_index()])
-    baseline = baseline.replace(0, 1e-8)
-    chart_data = (filtered_data / baseline - 1) * 100
-else:
-    chart_data = filtered_data.copy()
+    st.altair_chart(chart, use_container_width=True)
 
-# print(chart_data)
-
-# --- Altair Chart ---
-chart_df = chart_data.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
-
-y_axis = alt.Y(
-    "Value:Q",
-    title="% Change" if view == "Normalized % Change" else "Price (USD)",
-)
-
-chart = alt.Chart(chart_df).mark_line().encode(
-    x="Date:T",
-    y=y_axis,
-    color="Asset:N"
-).properties(width=800, height=600).interactive()
-
-st.altair_chart(chart, use_container_width=True)
+    # Reset update flag
+    # st.session_state.update_graph = False
 
 # --- Latest Prices ---
 # st.subheader("Latest Prices")
