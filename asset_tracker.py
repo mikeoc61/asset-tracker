@@ -270,7 +270,7 @@ if update_clicked:
         align="left",
         baseline="top",
         dy=5,
-        angle=300,
+        angle=310,
         fontSize=11,
         color="orange",
         clip=False
