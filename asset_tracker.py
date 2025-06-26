@@ -36,7 +36,7 @@ local_today = datetime.now(local_tz).date()
 # --- Set Page layout and titles ---
 st.set_page_config(layout="wide")
 st.title("📈 Asset Comparison")
-st.caption(f"Last Updated: {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
+# st.caption(f"Last Updated: {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
 
 # --- Session state flag for update control ---
 if "update_graph" not in st.session_state:
@@ -225,8 +225,6 @@ if update_clicked:
             except Exception as e:
                 print(f"Error updating {ticker} with real-time price: {e}")
 
-    # print(filtered_data)
-
     # --- Normalize Data ---
     if view == "Normalized % Change":
         baseline = filtered_data.apply(lambda col: col.loc[col.first_valid_index()])
@@ -234,8 +232,6 @@ if update_clicked:
         chart_data = (filtered_data / baseline - 1) * 100
     else:
         chart_data = filtered_data.copy()
-
-    # print(chart_data)
 
     # --- Altair Chart ---
     chart_df = chart_data.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
@@ -245,13 +241,51 @@ if update_clicked:
         title="% Change" if view == "Normalized % Change" else "Price (USD)",
     )
 
-    chart = alt.Chart(chart_df).mark_line().encode(
+    main_chart = alt.Chart(chart_df).mark_line().encode(
         x="Date:T",
         y=y_axis,
         color="Asset:N"
-    ).properties(width=800, height=600).interactive()
+    )
+
+    # --- Vertical lines for month or year boundaries ---
+    def get_time_boundaries(dates, freq="M"):  # Use "M" for monthly or "Y" for yearly
+        df = pd.DataFrame({"Date": pd.to_datetime(dates)})
+        df["Boundary"] = df["Date"].dt.to_period(freq)
+        df["Label"] = df["Date"].dt.strftime("%b %Y") if freq == "M" else df["Date"].dt.strftime("%Y")
+        return df.drop_duplicates("Boundary")[["Date", "Label"]]
+
+    boundaries_df = get_time_boundaries(chart_df["Date"], freq="M")
+
+    rules = alt.Chart(boundaries_df).mark_rule(
+        color="gray", strokeDash=[3, 3]
+    ).encode(
+        x="Date:T"
+    )
+
+    baseline_rule = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(strokeDash=[4,4], color='orange').encode(
+        y='y:Q'
+    )
+
+    labels = alt.Chart(boundaries_df).mark_text(
+        align="left",
+        baseline="top",
+        dy=5,
+        angle=300,
+        fontSize=11,
+        color="orange",
+        clip=False
+    ).encode(
+        x="Date:T",
+        y=alt.value(-25),  # Places text below x-axis (bottom of chart area)
+        text="Label:N"
+    )
+
+    # Combine main chart and vertical line rules
+    chart = (main_chart + rules + baseline_rule + labels).properties(width=800, height=600).interactive()
 
     st.altair_chart(chart, use_container_width=True)
+
+st.caption(f"Last Updated: {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
 
 # --- Latest Prices ---
 # st.subheader("Latest Prices")
