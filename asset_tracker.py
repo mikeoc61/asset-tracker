@@ -135,10 +135,13 @@ def add_ticker():
     if is_valid_ticker(new_ticker):
         if new_ticker not in st.session_state.ticker_list:
             st.session_state.ticker_list.append(new_ticker)
-        if new_ticker not in st.session_state.selected_assets:
-            st.session_state.selected_assets.append(new_ticker)
+
+        # Preserve selected assets and append new one if not present
+        current_selection = st.session_state.get("selected_assets", []).copy()
+        if new_ticker not in current_selection:
+            current_selection.append(new_ticker)
+        st.session_state.selected_assets = current_selection  # Explicit reassign
         
-         # Clear input and previous error
         st.session_state.user_input = ""
         st.session_state.add_ticker_error = ""
         st.session_state.add_ticker_error_time = 0
@@ -151,14 +154,16 @@ def add_ticker():
 with st.sidebar:
     view = st.radio("Select View", ["Price (USD)", "Normalized % Change"], index=1)
     selected_range = st.selectbox("Select Time Range", options=list(range_options.keys()))
+    
     # selected_assets = st.multiselect("Select Assets", options=list(tickers), default=default_tickers)
-    selected_assets = st.multiselect(
+    st.multiselect(
         "Select Assets", 
         options=list(st.session_state.ticker_list), 
-        default=st.session_state.selected_assets
+        key="selected_assets"   # <- lets Streamlit manage and persist selection
     )
 
     st.text_input("Add ticker", key="user_input", on_change=add_ticker, placeholder="e.g., TSLA")
+
     if st.session_state.get("add_ticker_error"):
         error_time = st.session_state.get("add_ticker_error_time", 0)
         if time.time() - error_time < 2:
@@ -172,7 +177,10 @@ with st.sidebar:
 
 # --- Logic only runs if button pressed, button resets to False after each pass ---
 if update_clicked:
-    ''' Main logic responsible for validating request, querying data and formatting graph'''
+
+    # Now that we have a final list of selected assets let's make a copy of the
+    # session state and use that going forward for simplicity
+    selected_assets = st.session_state.selected_assets.copy()
 
     # --- Date Calculations based on user selected range option ---
     days_back = range_options[selected_range]
