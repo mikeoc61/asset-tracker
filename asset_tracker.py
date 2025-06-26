@@ -10,21 +10,22 @@ Features:
 - Sidebar toggles to include/exclude individual tickers
 - Date range selector: 1 Week, 3 Months, 6 Months, 1 Year, Year-To-Date (YTD)
 
-This tool helps visualize how BTC price movements align or diverge from traditional macroeconomic assets.
+This tool helps visualize how BTC price movements align or diverge from traditional assets.
 
 Reference:
 - https://medium.com/@kasperjuunge/yfinance-10-ways-to-get-stock-data-with-python-6677f49e8282
 """
 
+from datetime import date, timedelta, datetime
+import time
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import altair as alt
-from datetime import date, timedelta, datetime
 import pandas_market_calendars as mcal
 import tzlocal
 import requests
-import time
 
 # Get local timezone automatically
 local_tz = tzlocal.get_localzone()
@@ -42,7 +43,7 @@ if "update_graph" not in st.session_state:
     st.session_state.update_graph = False
 
 # --- User Selected Options. Must be valid Ticker Symbol ---
-tickers = ["SPY", "BTC-USD", "FBTC", "ETH-USD", "DX-Y.NYB", "GC=F", "SOL-USD", "EFA", "QQQ", "STRK", "FDGRX", "FBAKX"]
+tickers = ["SPY", "BTC-USD", "ETH-USD", "DX-Y.NYB", "GC=F", "SOL-USD", "EFA", "QQQ", "STRK"]
 default_tickers = ["SPY", "BTC-USD", "EFA"]
 
 # --- Initialize session state - first pass only ---
@@ -69,13 +70,13 @@ range_options = {
 
 # --- Test for connection and / or rate limiting issues ---
 @st.cache_data(ttl=3600)  # Cache for 1 hour
-def check_yfinance_connection():
-    test_ticker = tickers[0]
+def check_yfinance_connection(test_ticker):
+    '''Check to make sure we have basic functionality'''
     today = date.today()
     try:
         test_data = yf.download(test_ticker, start=today - timedelta(days=1), end=today, progress=False)
         if test_data.empty:
-            st.error("No data from Yahoo Finance. Possible rate limiting or network issues. Please try again later.")
+            st.error("No data from Yahoo Finance. Possible rate limiting. Please try again later.")
             st.stop()
     except (requests.exceptions.RequestException, Exception) as e:
         st.error(f"Data connection error: {e}")
@@ -83,28 +84,27 @@ def check_yfinance_connection():
 
 # --- Validate Ticker Symbol ---
 @st.cache_data(ttl=3600)  # Cache for 1 hour
-def is_valid_ticker(ticker):
+def is_valid_ticker(symbol):
     '''Make a minimal request to validate ticker is valid'''
     try:
-        info = yf.Ticker(ticker).info
+        info = yf.Ticker(symbol).info
         return bool(info) and "regularMarketPrice" in info
     except Exception:
         return False
-    
+
 # --- Fetch Ticker Price Data ---
 @st.cache_data(ttl=3600)
-def get_data(tickers, start_date):
+def get_yf_data(tickers_list, starting_date):
     '''Query yahoo finance to provide cloding price data for a list of tickers'''
-    try: 
-        data = yf.download(tickers, start=start_date, progress=False)["Close"]
-        return data
+    try:
+        yf_data = yf.download(tickers_list, start=starting_date, progress=False)["Close"]
+        return yf_data
     except Exception as e:
         st.error(f"{e}")
         st.stop()
-    
-# Adjust return start date to next trading day if otherwise starts on a US holiday
-# Important so that data series always starts with an actual value
-def adjust_for_non_trading_day(start_date):
+
+# --- Start Date Adjustment ---
+def adjust_for_non_trading_day(orig_date):
     '''
     Adjust start start date to next trading day if otherwise starts on a US holiday
     Important so that data series always starts with an actual value
@@ -112,9 +112,8 @@ def adjust_for_non_trading_day(start_date):
     nyse = mcal.get_calendar("NYSE")
     # Generate valid trading days from start_date onward
     trading_days = nyse.valid_days(
-        start_date=start_date.strftime("%Y-%m-%d"),
+        start_date=orig_date.strftime("%Y-%m-%d"),
         end_date=(date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
-        # end_date=(date_local + timedelta(days=1)).strftime("%Y-%m-%d")
     )
     return trading_days[0].date()
 
@@ -124,7 +123,7 @@ def validate_assets(tickers):
         if not is_valid_ticker(ticker):
             st.error(f"Invalid Ticker: {ticker}. Please correct your selection.")
         time.sleep(1)
-    
+
 def add_ticker():
     '''Callback function adds user supplied ticker to multi-select list'''
     new_ticker = st.session_state.user_input.strip().upper()
@@ -141,7 +140,7 @@ def add_ticker():
         if new_ticker not in current_selection:
             current_selection.append(new_ticker)
         st.session_state.selected_assets = current_selection  # Explicit reassign
-        
+
         st.session_state.user_input = ""
         st.session_state.add_ticker_error = ""
         st.session_state.add_ticker_error_time = 0
@@ -154,11 +153,10 @@ def add_ticker():
 with st.sidebar:
     view = st.radio("Select View", ["Price (USD)", "Normalized % Change"], index=1)
     selected_range = st.selectbox("Select Time Range", options=list(range_options.keys()))
-    
-    # selected_assets = st.multiselect("Select Assets", options=list(tickers), default=default_tickers)
+
     st.multiselect(
         "Select Assets", 
-        options=list(st.session_state.ticker_list), 
+        options=list(st.session_state.ticker_list),
         key="selected_assets"   # <- lets Streamlit manage and persist selection
     )
 
@@ -171,7 +169,7 @@ with st.sidebar:
         else:
             st.session_state["add_ticker_error"] = ""
             st.session_state["add_ticker_error_time"] = 0
-   
+
     st.write("")
     update_clicked = st.button("🔄 Graph Results 🔄")
 
@@ -188,14 +186,14 @@ if update_clicked:
     adj_date = adjust_for_non_trading_day(start_date)
 
     # --- Test for connection issues ---
-    check_yfinance_connection()
+    check_yfinance_connection("SPY")
 
     # --- Validate selected tickers ---
     validate_assets(selected_assets)
 
     # --- Data Download (only selected tickers) ---
     if selected_assets:
-        data = get_data(selected_assets, adj_date)
+        data = get_yf_data(selected_assets, adj_date)
     else:
         st.warning("Please select at least one ticker.")
         st.stop()
