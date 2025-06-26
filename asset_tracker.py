@@ -45,6 +45,28 @@ if "update_graph" not in st.session_state:
 tickers = ["SPY", "BTC-USD", "FBTC", "ETH-USD", "DX-Y.NYB", "GC=F", "SOL-USD", "EFA", "QQQ", "STRK", "FDGRX", "FBAKX"]
 default_tickers = ["SPY", "BTC-USD", "EFA"]
 
+# --- Initialize session state - first pass only ---
+if "ticker_list" not in st.session_state:
+    st.session_state.ticker_list = tickers.copy()
+if "selected_assets" not in st.session_state:
+    st.session_state.selected_assets = default_tickers.copy()
+if "user_input" not in st.session_state:
+    st.session_state.user_input = ""
+if "add_ticker_error" not in st.session_state:
+    st.session_state.add_ticker_error = ""
+
+# Time range options specified in days
+range_options = {
+    "1 Week": 7,
+    "1 Month": 31,
+    "3 Months": 93,
+    "6 Months": 182,
+    "YTD": (local_today - date(local_today.year, 1, 1)).days,
+    "1 Year": 365,
+    "3 Years": (365*3),
+    "5 Years": (365*5)
+}
+
 # --- Test for connection and / or rate limiting issues ---
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def check_yfinance_connection():
@@ -65,8 +87,7 @@ def is_valid_ticker(ticker):
     try:
         info = yf.Ticker(ticker).info
         return bool(info) and "regularMarketPrice" in info
-    except Exception as e:
-        st.error(f"{e}")
+    except Exception:
         return False
     
 # --- Fetch Ticker Price Data ---
@@ -92,47 +113,57 @@ def adjust_for_non_trading_day(start_date):
     )
     return trading_days[0].date()
 
-# --- Validate selected tickers ---
-# Warn users about tickers without valid price data and stop until deselected
 def validate_assets(tickers):
-    invalid_assets = []
+    '''Warn users about tickers without valid price data'''
     for ticker in tickers:
-        if is_valid_ticker(ticker) == False:
-            st.error(f"Invalid Ticker(s) detected: {', '.join(invalid_assets)}. Please correct your selection.")
-            st.stop()
-        else:
-            time.sleep(1)
+        if not is_valid_ticker(ticker):
+            st.error(f"Invalid Ticker: {ticker}. Please correct your selection.")
+        time.sleep(1)
+    
+def add_ticker():
+    '''Callback function adds user supplied ticker to multi-select list'''
+    new_ticker = st.session_state.user_input.strip().upper()
 
-    if invalid_assets:
-        st.error(f"Invalid Ticker(s) detected: {', '.join(invalid_assets)}. Please correct your selection.")
-        st.stop()
+    if not new_ticker:
+        return
 
-# Time range options specified in days
-range_options = {
-    "1 Week": 7,
-    "1 Month": 31,
-    "3 Months": 93,
-    "6 Months": 182,
-    "YTD": (local_today - date(local_today.year, 1, 1)).days,
-    "1 Year": 365,
-    "3 Years": (365*3),
-    "5 Years": (365*5)
-}
+    if is_valid_ticker(new_ticker):
+        if new_ticker not in st.session_state.ticker_list:
+            st.session_state.ticker_list.append(new_ticker)
+        if new_ticker not in st.session_state.selected_assets:
+            st.session_state.selected_assets.append(new_ticker)
+        
+         # Clear input and previous error
+        st.session_state.user_input = ""
+        st.session_state.add_ticker_error = ""
+        st.session_state.add_ticker_error_time = 0
+    else:
+        st.session_state.add_ticker_error = f"Sorry, {new_ticker} is not a valid ticker."
+        st.session_state.add_ticker_error_time = time.time()
+
 
 # --- Create sidebar Widgets ---
 with st.sidebar:
     view = st.radio("Select View", ["Price (USD)", "Normalized % Change"], index=1)
     selected_range = st.selectbox("Select Time Range", options=list(range_options.keys()))
-    selected_assets = st.multiselect("Select Assets", options=list(tickers), default=default_tickers)
+    # selected_assets = st.multiselect("Select Assets", options=list(tickers), default=default_tickers)
+    selected_assets = st.multiselect(
+        "Select Assets", 
+        options=list(st.session_state.ticker_list), 
+        default=st.session_state.selected_assets
+    )
 
-    user_ticker = st.text_input("User ticker", placeholder="e.g., TSLA")
-    if user_ticker:
-        user_ticker = user_ticker.strip().upper()
-        selected_assets.append(user_ticker)
-        selected_assets = list(set(selected_assets))  # De-duplicate nicely
+    st.text_input("Add ticker", key="user_input", on_change=add_ticker, placeholder="e.g., TSLA")
+    if st.session_state.get("add_ticker_error"):
+        error_time = st.session_state.get("add_ticker_error_time", 0)
+        if time.time() - error_time < 2:
+            st.error(st.session_state["add_ticker_error"])
+        else:
+            st.session_state["add_ticker_error"] = ""
+            st.session_state["add_ticker_error_time"] = 0
    
     st.write("")
-    update_clicked = st.button("🔄 Update Graph 🔄")
+    update_clicked = st.button("🔄 Graph Results 🔄")
 
 # --- Logic only runs if button pressed, button resets to False after each pass ---
 if update_clicked:
@@ -153,7 +184,6 @@ if update_clicked:
         data = get_data(selected_assets, adj_date)
     else:
         st.warning("Please select at least one ticker.")
-        st.stop()
 
     # Forward-fill missing values for non-trading days
     # Combine into one DataFrame and trim rows before adjusted start_date
@@ -209,9 +239,6 @@ if update_clicked:
     ).properties(width=800, height=600).interactive()
 
     st.altair_chart(chart, use_container_width=True)
-
-    # Reset update flag
-    # st.session_state.update_graph = False
 
 # --- Latest Prices ---
 # st.subheader("Latest Prices")
