@@ -84,6 +84,7 @@ def check_yfinance_connection():
 # --- Validate Ticker Symbol ---
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def is_valid_ticker(ticker):
+    '''Make a minimal request to validate ticker is valid'''
     try:
         info = yf.Ticker(ticker).info
         return bool(info) and "regularMarketPrice" in info
@@ -91,9 +92,9 @@ def is_valid_ticker(ticker):
         return False
     
 # --- Fetch Ticker Price Data ---
-# Call Yahoo Finance with list of provided tickers. Cache data for specified ttl (3600 = 1 hour)
 @st.cache_data(ttl=3600)
 def get_data(tickers, start_date):
+    '''Query yahoo finance to provide cloding price data for a list of tickers'''
     try: 
         data = yf.download(tickers, start=start_date, progress=False)["Close"]
         return data
@@ -104,6 +105,10 @@ def get_data(tickers, start_date):
 # Adjust return start date to next trading day if otherwise starts on a US holiday
 # Important so that data series always starts with an actual value
 def adjust_for_non_trading_day(start_date):
+    '''
+    Adjust start start date to next trading day if otherwise starts on a US holiday
+    Important so that data series always starts with an actual value
+    '''
     nyse = mcal.get_calendar("NYSE")
     # Generate valid trading days from start_date onward
     trading_days = nyse.valid_days(
@@ -167,6 +172,7 @@ with st.sidebar:
 
 # --- Logic only runs if button pressed, button resets to False after each pass ---
 if update_clicked:
+    ''' Main logic responsible for validating request, querying data and formatting graph'''
 
     # --- Date Calculations based on user selected range option ---
     days_back = range_options[selected_range]
@@ -184,6 +190,7 @@ if update_clicked:
         data = get_data(selected_assets, adj_date)
     else:
         st.warning("Please select at least one ticker.")
+        st.stop()
 
     # Forward-fill missing values for non-trading days
     # Combine into one DataFrame and trim rows before adjusted start_date
