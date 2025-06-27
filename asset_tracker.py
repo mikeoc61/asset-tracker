@@ -225,7 +225,7 @@ if update_clicked:
             except Exception as e:
                 print(f"Error updating {ticker} with real-time price: {e}")
 
-    # --- Normalize Data ---
+    # --- Normalize Data if User Specified, otherwise graph actual asset price ---
     if view == "Normalized % Change":
         baseline = filtered_data.apply(lambda col: col.loc[col.first_valid_index()])
         baseline = baseline.replace(0, 1e-8)
@@ -242,46 +242,45 @@ if update_clicked:
     )
 
     main_chart = alt.Chart(chart_df).mark_line().encode(
-        x="Date:T",
+        x=alt.X(
+        "Date:T",
+        axis=alt.Axis(
+            labelColor="orange",
+            labelAlign="center"
+            )),
         y=y_axis,
         color="Asset:N"
     )
 
     # --- Vertical lines for month or year boundaries ---
-    def get_time_boundaries(dates, freq="M"):  # Use "M" for monthly or "Y" for yearly
+    def get_time_boundaries(dates, freq):
         df = pd.DataFrame({"Date": pd.to_datetime(dates)})
         df["Boundary"] = df["Date"].dt.to_period(freq)
         df["Label"] = df["Date"].dt.strftime("%b %Y") if freq == "M" else df["Date"].dt.strftime("%Y")
         return df.drop_duplicates("Boundary")[["Date", "Label"]]
 
-    boundaries_df = get_time_boundaries(chart_df["Date"], freq="M")
+    # --- Get data range selected by user ---
+    days_back = range_options[selected_range]
+    F_VALUE = "M" if (days_back <= 365) else "Y"    # Use "M" for monthly or "Y" for yearly
+    boundaries_df = get_time_boundaries(chart_df["Date"], freq=F_VALUE)
 
+    # --- define verticle hash marks ---
     rules = alt.Chart(boundaries_df).mark_rule(
         color="gray", strokeDash=[3, 3]
     ).encode(
         x="Date:T"
     )
 
-    baseline_rule = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(strokeDash=[4,4], color='orange').encode(
+    # --- Add ephasis to line at Y = 0 on the chart ---
+    baseline_rule = alt.Chart(
+        pd.DataFrame({'y': [0]})
+    ).mark_rule(
+        strokeDash=[4,4], color='orange').encode(
         y='y:Q'
     )
 
-    labels = alt.Chart(boundaries_df).mark_text(
-        align="left",
-        baseline="top",
-        dy=5,
-        angle=310,
-        fontSize=11,
-        color="orange",
-        clip=False
-    ).encode(
-        x="Date:T",
-        y=alt.value(-25),  # Places text below x-axis (bottom of chart area)
-        text="Label:N"
-    )
-
-    # Combine main chart and vertical line rules
-    chart = (main_chart + rules + baseline_rule + labels).properties(width=800, height=600).interactive()
+    # --- Combine main chart and vertical line rules ---
+    chart = (main_chart + rules + baseline_rule).properties(width=800, height=600).interactive()
 
     st.altair_chart(chart, use_container_width=True)
 
