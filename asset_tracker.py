@@ -36,7 +36,6 @@ local_today = datetime.now(local_tz).date()
 # --- Set Page layout and titles ---
 st.set_page_config(layout="wide")
 st.title("📈 Asset Comparison")
-# st.caption(f"Last Updated: {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
 
 # --- Session state flag for update control ---
 if "update_graph" not in st.session_state:
@@ -83,7 +82,6 @@ def check_yfinance_connection(test_ticker):
         st.stop()
 
 # --- Validate Ticker Symbol ---
-@st.cache_data(ttl=3600)  # Cache for 1 hour
 def is_valid_ticker(symbol):
     '''Make a minimal request to validate ticker is valid'''
     try:
@@ -93,7 +91,6 @@ def is_valid_ticker(symbol):
         return False
 
 # --- Fetch Ticker Price Data ---
-@st.cache_data(ttl=3600)
 def get_yf_data(tickers_list, starting_date):
     '''Query yahoo finance to provide cloding price data for a list of tickers'''
     try:
