@@ -280,8 +280,8 @@ if update_clicked:
 
     st.altair_chart(chart, use_container_width=True)
 
-    st.caption(f"Last updated: {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
-    st.caption(f"Data range: {adj_date.strftime('%Y-%m-%d')} to {date.today().strftime('%Y-%m-%d')}")
+    st.caption(f"**Last updated:** {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
+    st.caption(f"**Data range:** {adj_date.strftime('%Y-%m-%d')} to {date.today().strftime('%Y-%m-%d')}")
 
 # --- Latest Prices ---
 # st.subheader("Latest Prices")
