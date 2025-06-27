@@ -173,20 +173,20 @@ with st.sidebar:
     st.write("")
     update_clicked = st.button("🔄 Graph Results 🔄")
 
+# Now that we have a final list of selected assets let's make a copy of the
+# session state and use that going forward for simplicity
+selected_assets = st.session_state.selected_assets.copy()
+
+# --- Date Calculations based on user selected range option ---
+days_back = range_options[selected_range]
+start_date = date.today() - timedelta(days=days_back)
+adj_date = adjust_for_non_trading_day(start_date)
+
+# --- Test for connection issues ---
+check_yfinance_connection("SPY")
+
 # --- Logic only runs if button pressed, button resets to False after each pass ---
 if update_clicked:
-
-    # Now that we have a final list of selected assets let's make a copy of the
-    # session state and use that going forward for simplicity
-    selected_assets = st.session_state.selected_assets.copy()
-
-    # --- Date Calculations based on user selected range option ---
-    days_back = range_options[selected_range]
-    start_date = date.today() - timedelta(days=days_back)
-    adj_date = adjust_for_non_trading_day(start_date)
-
-    # --- Test for connection issues ---
-    check_yfinance_connection("SPY")
 
     # --- Validate selected tickers ---
     validate_assets(selected_assets)
@@ -205,16 +205,16 @@ if update_clicked:
     combined = combined[combined.index >= pd.to_datetime(start_date)]
     filtered_data = combined[selected_assets]
 
+    # Make sure the DataFrame index is a DatetimeIndex (safety check)
+    if not isinstance(filtered_data.index, pd.DatetimeIndex):
+        filtered_data.index = pd.to_datetime(filtered_data.index)
+
     # --- Patch last row with real-time data for 24/7 tickers like BTC-USD ---
     for ticker in selected_assets:
         if "-USD" in ticker:
             try:
                 realtime_price = yf.Ticker(ticker).info.get("regularMarketPrice")
                 if pd.notna(realtime_price):
-                    # Make sure the DataFrame index is a DatetimeIndex (safety check)
-                    if not isinstance(filtered_data.index, pd.DatetimeIndex):
-                        filtered_data.index = pd.to_datetime(filtered_data.index)
-
                     # If last known data date is before today, append new row
                     if filtered_data.index[-1].date() < local_today:
                         new_row = pd.DataFrame({ticker: realtime_price}, index=[pd.Timestamp(local_today)])
@@ -259,8 +259,7 @@ if update_clicked:
         df["Label"] = df["Date"].dt.strftime("%b %Y") if freq == "M" else df["Date"].dt.strftime("%Y")
         return df.drop_duplicates("Boundary")[["Date", "Label"]]
 
-    # --- Get data range selected by user ---
-    days_back = range_options[selected_range]
+    # --- Adjust hash boundaries based on date range ---
     F_VALUE = "M" if (days_back <= 365) else "Y"    # Use "M" for monthly or "Y" for yearly
     boundaries_df = get_time_boundaries(chart_df["Date"], freq=F_VALUE)
 
@@ -271,7 +270,7 @@ if update_clicked:
         x="Date:T"
     )
 
-    # --- Add ephasis to line at Y = 0 on the chart ---
+    # --- Add emphasis to line at Y = 0 on the chart ---
     baseline_rule = alt.Chart(
         pd.DataFrame({'y': [0]})
     ).mark_rule(
@@ -284,7 +283,8 @@ if update_clicked:
 
     st.altair_chart(chart, use_container_width=True)
 
-st.caption(f"Last Updated: {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
+    st.caption(f"Last updated: {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
+    st.caption(f"Data range: {adj_date.strftime('%Y-%m-%d')} to {date.today().strftime('%Y-%m-%d')}")
 
 # --- Latest Prices ---
 # st.subheader("Latest Prices")
