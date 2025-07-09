@@ -236,6 +236,7 @@ if update_clicked:
     y_axis = alt.Y(
         "Value:Q",
         title="% Change" if view == "Normalized % Change" else "Price (USD)",
+        axis=alt.Axis(orient="right")
     )
 
     main_chart = alt.Chart(chart_df).mark_line().encode(
