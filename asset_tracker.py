@@ -85,8 +85,8 @@ def check_yfinance_connection(test_ticker):
 def is_valid_ticker(symbol):
     '''Make a minimal request to validate ticker is valid'''
     try:
-        info = yf.Ticker(symbol).info
-        return bool(info) and "regularMarketPrice" in info
+        df = yf.download(symbol, period="5d", progress=False)
+        return not df.empty
     except Exception:
         return False
 
