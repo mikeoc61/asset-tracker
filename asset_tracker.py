@@ -114,11 +114,11 @@ def adjust_for_non_trading_day(orig_date):
     )
     return trading_days[0].date()
 
-def validate_assets(tickers):
+def validate_assets(stocks):
     '''Warn users about tickers without valid price data'''
-    for ticker in tickers:
-        if not is_valid_ticker(ticker):
-            st.error(f"Invalid Ticker: {ticker}. Please correct your selection.")
+    for s in stocks:
+        if not is_valid_ticker(s):
+            st.error(f"Invalid Ticker: {s}. Please correct your selection.")
         time.sleep(1)
 
 def add_ticker():
@@ -207,20 +207,20 @@ if update_clicked:
         filtered_data.index = pd.to_datetime(filtered_data.index)
 
     # --- Patch last row with real-time data for 24/7 tickers like BTC-USD ---
-    for ticker in selected_assets:
-        if "-USD" in ticker:
+    for t in selected_assets:
+        if "-USD" in t:
             try:
-                realtime_price = yf.Ticker(ticker).info.get("regularMarketPrice")
+                realtime_price = yf.Ticker(t).info.get("regularMarketPrice")
                 if pd.notna(realtime_price):
                     # If last known data date is before today, append new row
                     if filtered_data.index[-1].date() < local_today:
-                        new_row = pd.DataFrame({ticker: realtime_price}, index=[pd.Timestamp(local_today)])
+                        new_row = pd.DataFrame({t: realtime_price}, index=[pd.Timestamp(local_today)])
                         filtered_data = pd.concat([filtered_data, new_row])
                     else:
                         # If the row for today exists, just update the price
-                        filtered_data.loc[filtered_data.index[-1], ticker] = realtime_price
+                        filtered_data.loc[filtered_data.index[-1], t] = realtime_price
             except Exception as e:
-                print(f"Error updating {ticker} with real-time price: {e}")
+                print(f"Error updating {t} with real-time price: {e}")
 
     # --- Normalize Data if User Specified, otherwise graph actual asset price ---
     if view == "Normalized % Change":
