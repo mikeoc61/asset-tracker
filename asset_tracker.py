@@ -20,6 +20,7 @@ from datetime import date, timedelta, datetime
 import time
 import contextlib
 import io
+import re
 
 import streamlit as st
 import yfinance as yf
@@ -38,10 +39,6 @@ local_today = datetime.now(local_tz).date()
 # --- Set Page layout and titles ---
 st.set_page_config(layout="wide")
 st.title("📈 Asset Comparison")
-
-# --- Session state flag for update control ---
-if "update_graph" not in st.session_state:
-    st.session_state.update_graph = False
 
 # --- User Selected Options. Must be valid Ticker Symbol ---
 tickers = ["SPY", "BTC-USD", "ETH-USD", "DX-Y.NYB", "GC=F", "SOL-USD", "EFA", "QQQ", "STRK"]
@@ -75,7 +72,7 @@ def check_yfinance_connection(test_ticker):
     '''Check to make sure we have basic functionality'''
     today = date.today()
     try:
-        test_data = yf.download(test_ticker, start=today - timedelta(days=1), end=today, progress=False)
+        test_data = yf.download(test_ticker, period="5d", progress=False)
         if test_data.empty:
             st.error("No data from Yahoo Finance. Possible rate limiting. Please try again later.")
             st.stop()
@@ -119,13 +116,13 @@ def adjust_for_non_trading_day(orig_date):
     )
     return trading_days[0].date()
 
-def validate_assets(tickers):
+def validate_assets(assets):
     """
     Validate selected tickers before fetching data. Stops execution if any ticker is invalid.
     """
     invalid = []
 
-    for ticker in tickers:
+    for ticker in assets:
         if not is_valid_ticker(ticker):
             invalid.append(ticker)
         time.sleep(0.5)  # rate-limit API calls only
@@ -136,9 +133,6 @@ def validate_assets(tickers):
             "Please correct your selection."
         )
         st.stop()
-
-import re
-import time
 
 # Allow common Yahoo formats: BRK.B, BTC-USD, GC=F, ^GSPC, DX-Y.NYB, etc.
 _TICKER_RE = re.compile(r"^[A-Z0-9.\-=\^]+$")
@@ -208,18 +202,6 @@ with st.sidebar:
     with mid:
         update_clicked = st.button("🔄 Graph Results 🔄", use_container_width=True)
 
-# # Now that we have a final list of selected assets let's make a copy of the
-# # session state and use that going forward for simplicity
-# selected_assets = st.session_state.selected_assets.copy()
-
-# # --- Date Calculations based on user selected range option ---
-# days_back = range_options[selected_range]
-# start_date = date.today() - timedelta(days=days_back)
-# adj_date = adjust_for_non_trading_day(start_date)
-
-# # --- Test for connection issues ---
-# check_yfinance_connection("SPY")
-
 # --- Logic only runs if button pressed, button resets to False after each pass ---
 if update_clicked:
     # Make sure we have the latest list of tickers
@@ -287,7 +269,10 @@ if update_clicked:
     else:
         chart_data = filtered_data.copy()
 
-    # --- Altair Chart ---
+    # --- Construct Altair Chart ---
+    chart_data = chart_data.copy()
+    chart_data.index = pd.to_datetime(chart_data.index)
+    chart_data.index.name = "Date"
     chart_df = chart_data.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
 
     Y_MARGIN_PCT = 0.15  # 10–20% recommended
