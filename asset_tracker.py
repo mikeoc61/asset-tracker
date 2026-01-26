@@ -236,6 +236,23 @@ if update_clicked:
     if not isinstance(filtered_data.index, pd.DatetimeIndex):
         filtered_data.index = pd.to_datetime(filtered_data.index)
 
+    # --- Drop assets with no data in selected range ---
+    all_nan_assets = filtered_data.columns[filtered_data.isna().all()].tolist()
+
+    if all_nan_assets:
+        # Remove them from the DataFrame
+        filtered_data = filtered_data.drop(columns=all_nan_assets)
+
+        # Optional: warn user (non-fatal)
+        st.warning(
+            f"Removed asset(s) with no data in selected range: {', '.join(all_nan_assets)}"
+        )
+
+    # Final guard: stop if nothing remains
+    if filtered_data.empty:
+        st.error("No valid price data available for the selected assets and date range.")
+        st.stop()
+
     # --- Patch last row with real-time data for 24/7 tickers like BTC-USD ---
     for t in selected_assets:
         if "-USD" in t:
