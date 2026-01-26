@@ -70,7 +70,6 @@ range_options = {
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def check_yfinance_connection(test_ticker):
     '''Check to make sure we have basic functionality'''
-    today = date.today()
     try:
         test_data = yf.download(test_ticker, period="5d", progress=False)
         if test_data.empty:
@@ -93,11 +92,15 @@ def is_valid_ticker(symbol):
 # --- Fetch Ticker Price Data ---
 @st.cache_data(ttl=3600)
 def get_yf_data(tickers_list, starting_date):
-    '''Query yahoo finance to provide cloding price data for a list of tickers'''
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            yf_data = yf.download(tickers_list, start=starting_date, progress=False)["Close"]
-        return yf_data
+            close = yf.download(tickers_list, start=starting_date, progress=False)["Close"]
+
+        # If only one ticker, yfinance may return a Series of closes
+        if isinstance(close, pd.Series):
+            close = close.to_frame(name=tickers_list[0])
+
+        return close
     except Exception as e:
         st.error(f"{e}")
         st.stop()
@@ -253,6 +256,9 @@ if update_clicked:
         st.error("No valid price data available for the selected assets and date range.")
         st.stop()
 
+    # Looks like we're good to proceed so sync selected_assets with filtered data
+    selected_assets = filtered_data.columns.tolist()
+
     # --- Patch last row with real-time data for 24/7 tickers like BTC-USD ---
     for t in selected_assets:
         if "-USD" in t:
@@ -305,7 +311,7 @@ if update_clicked:
             pad = (y_max - y_min) * Y_MARGIN_PCT if y_max != y_min else max(abs(y_max) * Y_MARGIN_PCT, 1.0)
 
             y_domain = [y_min - pad, y_max + pad]
-    
+
     y_axis = alt.Y(
         "Value:Q",
         title="% Change" if view == "Normalized % Change" else "Price (USD)",
@@ -347,16 +353,17 @@ if update_clicked:
         x="Date:T"
     )
 
-    # --- Add emphasis to line at Y = 0 on the chart ---
-    baseline_rule = alt.Chart(
-        pd.DataFrame({'y': [0]})
-    ).mark_rule(
-        strokeDash=[4,4], color='orange').encode(
-        y='y:Q'
-    )
+    layers = [main_chart, rules]
 
-    # --- Combine main chart and vertical line rules ---
-    chart = (main_chart + rules + baseline_rule).properties(width=800, height=600).interactive()
+    # --- Add emphasis to line at Y = 0 on the chart when using Normalized view ---
+    if view == "Normalized % Change":
+        baseline_rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(
+            strokeDash=[4, 4],
+            color="orange",
+        ).encode(y="y:Q")
+        layers.append(baseline_rule)
+
+    chart = alt.layer(*layers).properties(width=800, height=600).interactive()
 
     st.altair_chart(chart, width='stretch')
 
