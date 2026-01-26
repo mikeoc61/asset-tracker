@@ -47,15 +47,15 @@ if "update_graph" not in st.session_state:
 tickers = ["SPY", "BTC-USD", "ETH-USD", "DX-Y.NYB", "GC=F", "SOL-USD", "EFA", "QQQ", "STRK"]
 default_tickers = ["SPY", "BTC-USD", "EFA"]
 
-# --- Initialize session state - first pass only ---
-if "ticker_list" not in st.session_state:
-    st.session_state.ticker_list = tickers.copy()
-if "selected_assets" not in st.session_state:
-    st.session_state.selected_assets = default_tickers.copy()
-if "user_input" not in st.session_state:
-    st.session_state.user_input = ""
-if "add_ticker_error" not in st.session_state:
-    st.session_state.add_ticker_error = ""
+# --- Session_State initialization to establish stable defaults ---
+def init_state():
+    st.session_state.setdefault("ticker_list", tickers.copy())
+    st.session_state.setdefault("selected_assets", default_tickers.copy())
+    st.session_state.setdefault("user_input", "")
+    st.session_state.setdefault("add_ticker_error", "")
+    st.session_state.setdefault("add_ticker_error_expires", 0.0)
+
+init_state()
 
 # Time range options specified in days
 range_options = {
@@ -119,36 +119,70 @@ def adjust_for_non_trading_day(orig_date):
     )
     return trading_days[0].date()
 
-def validate_assets(stocks):
-    '''Warn users about tickers without valid price data'''
-    for s in stocks:
-        if not is_valid_ticker(s):
-            st.error(f"Invalid Ticker: {s}. Please correct your selection.")
-        time.sleep(1)
+def validate_assets(tickers):
+    """
+    Validate selected tickers before fetching data. Stops execution if any ticker is invalid.
+    """
+    invalid = []
+
+    for ticker in tickers:
+        if not is_valid_ticker(ticker):
+            invalid.append(ticker)
+        time.sleep(0.5)  # rate-limit API calls only
+
+    if invalid:
+        st.error(
+            f"Invalid ticker(s): {', '.join(invalid)}. "
+            "Please correct your selection."
+        )
+        st.stop()
+
+import re
+import time
+
+# Allow common Yahoo formats: BRK.B, BTC-USD, GC=F, ^GSPC, DX-Y.NYB, etc.
+_TICKER_RE = re.compile(r"^[A-Z0-9.\-=\^]+$")
 
 def add_ticker():
-    '''Callback function adds user supplied ticker to multi-select list'''
-    new_ticker = st.session_state.user_input.strip().upper()
+    """Callback: add a single user-supplied ticker to options + selection."""
+    raw = st.session_state.get("user_input", "")
+    new_ticker = raw.strip().upper()
+
+    # Always clear the input so it doesn't keep re-triggering
+    st.session_state.user_input = ""
 
     if not new_ticker:
         return
 
+    # Reject multi-ticker entry (your "TSLA, IBM" case)
+    if any(sep in new_ticker for sep in [",", " ", ";", "\n", "\t"]):
+        st.session_state.add_ticker_error = "Enter exactly ONE ticker (no commas or spaces)."
+        st.session_state.add_ticker_error_expires = time.time() + 2
+        return
+
+    # Reject obviously invalid characters early (before calling yfinance)
+    if not _TICKER_RE.match(new_ticker):
+        st.session_state.add_ticker_error = "Ticker contains invalid characters."
+        st.session_state.add_ticker_error_expires = time.time() + 2
+        return
+
+    # Now do your existing validity check
     if is_valid_ticker(new_ticker):
+        # Add to available options
         if new_ticker not in st.session_state.ticker_list:
             st.session_state.ticker_list.append(new_ticker)
 
-        # Preserve selected assets and append new one if not present
+        # Preserve current multi-select choice and add the new ticker
         current_selection = st.session_state.get("selected_assets", []).copy()
         if new_ticker not in current_selection:
             current_selection.append(new_ticker)
-        st.session_state.selected_assets = current_selection  # Explicit reassign
+        st.session_state.selected_assets = current_selection  # explicit reassignment
 
-        st.session_state.user_input = ""
+        # Clear any prior error
         st.session_state.add_ticker_error = ""
-        st.session_state.add_ticker_error_time = 0
+        st.session_state.add_ticker_error_expires = 0.0
     else:
         st.session_state.add_ticker_error = f"Sorry, {new_ticker} is not a valid ticker."
-        # st.session_state.add_ticker_error_time = time.time()
         st.session_state.add_ticker_error_expires = time.time() + 2
 
 # --- Create sidebar Widgets ---
@@ -174,20 +208,30 @@ with st.sidebar:
     with mid:
         update_clicked = st.button("🔄 Graph Results 🔄", use_container_width=True)
 
-# Now that we have a final list of selected assets let's make a copy of the
-# session state and use that going forward for simplicity
-selected_assets = st.session_state.selected_assets.copy()
+# # Now that we have a final list of selected assets let's make a copy of the
+# # session state and use that going forward for simplicity
+# selected_assets = st.session_state.selected_assets.copy()
 
-# --- Date Calculations based on user selected range option ---
-days_back = range_options[selected_range]
-start_date = date.today() - timedelta(days=days_back)
-adj_date = adjust_for_non_trading_day(start_date)
+# # --- Date Calculations based on user selected range option ---
+# days_back = range_options[selected_range]
+# start_date = date.today() - timedelta(days=days_back)
+# adj_date = adjust_for_non_trading_day(start_date)
 
-# --- Test for connection issues ---
-check_yfinance_connection("SPY")
+# # --- Test for connection issues ---
+# check_yfinance_connection("SPY")
 
 # --- Logic only runs if button pressed, button resets to False after each pass ---
 if update_clicked:
+    # Make sure we have the latest list of tickers
+    selected_assets = st.session_state.selected_assets.copy()
+
+    # --- Date Calculations based on user selected range option ---
+    days_back = range_options[selected_range]
+    start_date = date.today() - timedelta(days=days_back)
+    adj_date = adjust_for_non_trading_day(start_date)
+
+    # --- Test for connection issues ---
+    check_yfinance_connection("SPY")
 
     # --- Validate selected tickers ---
     validate_assets(selected_assets)
@@ -228,9 +272,18 @@ if update_clicked:
 
     # --- Normalize Data if User Specified, otherwise graph actual asset price ---
     if view == "Normalized % Change":
-        baseline = filtered_data.apply(lambda col: col.loc[col.first_valid_index()])
-        baseline = baseline.replace(0, 1e-8)
-        chart_data = (filtered_data / baseline - 1) * 100
+        # first non-NaN per column; returns NaN if the entire column is NaN
+        baseline = filtered_data.apply(pd.Series.first_valid_index)
+        baseline_values = pd.Series(index=filtered_data.columns, dtype="float64")
+
+        for c in filtered_data.columns:
+            idx = baseline[c]
+            baseline_values[c] = filtered_data.loc[idx, c] if idx is not None else float("nan")
+
+        # Avoid division by zero; keep NaN columns as NaN
+        baseline_values = baseline_values.replace(0, pd.NA)
+
+        chart_data = (filtered_data.divide(baseline_values, axis=1) - 1) * 100
     else:
         chart_data = filtered_data.copy()
 
