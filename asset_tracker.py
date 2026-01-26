@@ -18,6 +18,8 @@ Reference:
 
 from datetime import date, timedelta, datetime
 import time
+import contextlib
+import io
 
 import streamlit as st
 import yfinance as yf
@@ -85,16 +87,19 @@ def check_yfinance_connection(test_ticker):
 def is_valid_ticker(symbol):
     '''Make a minimal request to validate ticker is valid'''
     try:
-        df = yf.download(symbol, period="5d", progress=False)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            df = yf.download(symbol, period="5d", progress=False)
         return not df.empty
     except Exception:
         return False
 
 # --- Fetch Ticker Price Data ---
+@st.cache_data(ttl=3600)
 def get_yf_data(tickers_list, starting_date):
     '''Query yahoo finance to provide cloding price data for a list of tickers'''
     try:
-        yf_data = yf.download(tickers_list, start=starting_date, progress=False)["Close"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            yf_data = yf.download(tickers_list, start=starting_date, progress=False)["Close"]
         return yf_data
     except Exception as e:
         st.error(f"{e}")
@@ -143,32 +148,31 @@ def add_ticker():
         st.session_state.add_ticker_error_time = 0
     else:
         st.session_state.add_ticker_error = f"Sorry, {new_ticker} is not a valid ticker."
-        st.session_state.add_ticker_error_time = time.time()
-
+        # st.session_state.add_ticker_error_time = time.time()
+        st.session_state.add_ticker_error_expires = time.time() + 2
 
 # --- Create sidebar Widgets ---
 with st.sidebar:
     view = st.radio("Select View", ["Price (USD)", "Normalized % Change"], index=1)
     selected_range = st.selectbox("Select Time Range", options=list(range_options.keys()))
-
     st.multiselect(
         "Select Assets", 
         options=list(st.session_state.ticker_list),
         key="selected_assets"   # <- lets Streamlit manage and persist selection
     )
-
     st.text_input("Add ticker", key="user_input", on_change=add_ticker, placeholder="e.g., TSLA")
 
-    if st.session_state.get("add_ticker_error"):
-        error_time = st.session_state.get("add_ticker_error_time", 0)
-        if time.time() - error_time < 2:
-            st.error(st.session_state["add_ticker_error"])
-        else:
-            st.session_state["add_ticker_error"] = ""
-            st.session_state["add_ticker_error_time"] = 0
+    msg = st.session_state.get("add_ticker_error", "")
+    expires = st.session_state.get("add_ticker_error_expires", 0)
+    if msg and time.time() < expires:
+        st.error(msg)
 
-    st.write("")
-    update_clicked = st.button("🔄 Graph Results 🔄")
+    for i in range (15):
+        st.write("")
+
+    left, mid, right = st.columns([1, 4, 1])
+    with mid:
+        update_clicked = st.button("🔄 Graph Results 🔄", use_container_width=True)
 
 # Now that we have a final list of selected assets let's make a copy of the
 # session state and use that going forward for simplicity
@@ -241,7 +245,7 @@ if update_clicked:
             labelColor="orange",
             titleColor="orange",
             labelAlign="center"
-        )   
+        )
     )
 
     main_chart = alt.Chart(chart_df).mark_line().encode(
@@ -255,8 +259,8 @@ if update_clicked:
         color="Asset:N"
     )
 
-    # --- Vertical lines for month or year boundaries ---
     def get_time_boundaries(dates, freq):
+        '''Draw Vertical lines for month or year boundaries'''
         df = pd.DataFrame({"Date": pd.to_datetime(dates)})
         df["Boundary"] = df["Date"].dt.to_period(freq)
         df["Label"] = df["Date"].dt.strftime("%b %Y") if freq == "M" else df["Date"].dt.strftime("%Y")
@@ -284,7 +288,7 @@ if update_clicked:
     # --- Combine main chart and vertical line rules ---
     chart = (main_chart + rules + baseline_rule).properties(width=800, height=600).interactive()
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width='stretch')
 
     st.caption(f"**Last updated:** {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
     st.caption(f"**Data range:** {adj_date.strftime('%Y-%m-%d')} to {date.today().strftime('%Y-%m-%d')}")
