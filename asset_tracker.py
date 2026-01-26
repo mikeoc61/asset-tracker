@@ -237,9 +237,24 @@ if update_clicked:
     # --- Altair Chart ---
     chart_df = chart_data.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
 
+    Y_MARGIN_PCT = 0.15  # 10–20% recommended
+
+    y_domain = None
+    if view != "Normalized % Change":
+        vals = pd.to_numeric(chart_df["Value"], errors="coerce").dropna()
+        if not vals.empty:
+            y_min = float(vals.min())
+            y_max = float(vals.max())
+
+            # Avoid zero-range edge case
+            pad = (y_max - y_min) * Y_MARGIN_PCT if y_max != y_min else max(abs(y_max) * Y_MARGIN_PCT, 1.0)
+
+            y_domain = [y_min - pad, y_max + pad]
+    
     y_axis = alt.Y(
         "Value:Q",
         title="% Change" if view == "Normalized % Change" else "Price (USD)",
+        scale=alt.Scale(domain=y_domain, zero=False, nice=True) if y_domain else alt.Scale(zero=False, nice=True),
         axis=alt.Axis(
             orient="right",
             labelColor="orange",
