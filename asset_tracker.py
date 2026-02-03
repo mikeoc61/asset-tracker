@@ -41,8 +41,11 @@ st.set_page_config(layout="wide")
 st.title("📈 Asset Comparison")
 
 # --- User Selected Options. Must be valid Ticker Symbol ---
-tickers = ["SPY", "BTC-USD", "ETH-USD", "DX-Y.NYB", "GC=F", "SOL-USD", "EFA", "QQQ", "STRK"]
-default_tickers = ["SPY", "BTC-USD", "EFA"]
+tickers = ["SPY", "EFA", "IWM", "QQQ", "STRK", "NVDA", "APPL",
+           "DX-Y.NYB", "GC=F", "SI=F", "HG=F",
+           "BTC-USD", "ETH-USD", "SOL-USD"
+           ]
+default_tickers = ["SPY", "BTC-USD", "IWM", "EFA", "QQQ"]
 
 # --- Session_State initialization to establish stable defaults ---
 def init_state():
@@ -184,8 +187,13 @@ def add_ticker():
 
 # --- Create sidebar Widgets ---
 with st.sidebar:
-    view = st.radio("Select View", ["Price (USD)", "Normalized % Change"], index=1)
-    selected_range = st.selectbox("Select Time Range", options=list(range_options.keys()))
+    view = st.radio("Chart Type", ["Closing Price (USD)", "Normalized % Change"], index=1)
+    
+    st.divider()
+    update_clicked = st.button("🔄 Update Graph 🔄", use_container_width=True)
+    st.divider()
+    selected_range = st.selectbox("Time Range", options=list(range_options.keys()))
+    st.divider()
     st.multiselect(
         "Select Assets", 
         options=list(st.session_state.ticker_list),
@@ -198,17 +206,13 @@ with st.sidebar:
     if msg and time.time() < expires:
         st.error(msg)
 
-    for i in range (15):
-        st.write("")
-
-    left, mid, right = st.columns([1, 4, 1])
-    with mid:
-        update_clicked = st.button("🔄 Graph Results 🔄", use_container_width=True)
-
 # --- Logic only runs if button pressed, button resets to False after each pass ---
 if update_clicked:
-    # Make sure we have the latest list of tickers
+    # --- Make sure we have the latest list of tickers ---
     selected_assets = st.session_state.selected_assets.copy()
+
+    # --- Determine if we're using Narmalized or Price view ---
+    is_norm: bool = (view == "Normalized % Change")
 
     # --- Date Calculations based on user selected range option ---
     days_back = range_options[selected_range]
@@ -235,7 +239,7 @@ if update_clicked:
     combined = combined[combined.index >= pd.to_datetime(start_date)]
     filtered_data = combined[selected_assets]
 
-    # Make sure the DataFrame index is a DatetimeIndex (safety check)
+    # --- Make sure the DataFrame index is a DatetimeIndex (safety check) ---
     if not isinstance(filtered_data.index, pd.DatetimeIndex):
         filtered_data.index = pd.to_datetime(filtered_data.index)
 
@@ -256,7 +260,7 @@ if update_clicked:
         st.error("No valid price data available for the selected assets and date range.")
         st.stop()
 
-    # Looks like we're good to proceed so sync selected_assets with filtered data
+    # --- Looks like we're good to proceed so sync selected_assets with filtered data ---
     selected_assets = filtered_data.columns.tolist()
 
     # --- Patch last row with real-time data for 24/7 tickers like BTC-USD ---
@@ -276,7 +280,7 @@ if update_clicked:
                 print(f"Error updating {t} with real-time price: {e}")
 
     # --- Normalize Data if User Specified, otherwise graph actual asset price ---
-    if view == "Normalized % Change":
+    if is_norm:
         # first non-NaN per column; returns NaN if the entire column is NaN
         baseline = filtered_data.apply(pd.Series.first_valid_index)
         baseline_values = pd.Series(index=filtered_data.columns, dtype="float64")
@@ -298,10 +302,25 @@ if update_clicked:
     chart_data.index.name = "Date"
     chart_df = chart_data.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
 
+    # Hover highlight (visual only)
+    hover_sel = alt.selection_point(
+        fields=["Asset"],
+        on="mouseover",
+        clear="mouseout",
+    )
+
+    # Click selection (NOT YET IMPLEMENTED)
+    click_sel = alt.selection_point(
+        name="asset_click",
+        fields=["Asset"],
+        on="click",
+        clear="dblclick",   # double-click clears selection
+    )
+
     Y_MARGIN_PCT = 0.15  # 10–20% recommended
 
-    y_domain = None
-    if view != "Normalized % Change":
+    Y_DOMAIN = None
+    if is_norm:
         vals = pd.to_numeric(chart_df["Value"], errors="coerce").dropna()
         if not vals.empty:
             y_min = float(vals.min())
@@ -310,12 +329,12 @@ if update_clicked:
             # Avoid zero-range edge case
             pad = (y_max - y_min) * Y_MARGIN_PCT if y_max != y_min else max(abs(y_max) * Y_MARGIN_PCT, 1.0)
 
-            y_domain = [y_min - pad, y_max + pad]
+            Y_DOMAIN = [y_min - pad, y_max + pad]
 
     y_axis = alt.Y(
         "Value:Q",
-        title="% Change" if view == "Normalized % Change" else "Price (USD)",
-        scale=alt.Scale(domain=y_domain, zero=False, nice=True) if y_domain else alt.Scale(zero=False, nice=True),
+        title="% Change" if is_norm else "Price (USD)",
+        scale=alt.Scale(domain=Y_DOMAIN, zero=False, nice=True) if Y_DOMAIN else alt.Scale(zero=False, nice=True),
         axis=alt.Axis(
             orient="right",
             labelColor="orange",
@@ -324,16 +343,29 @@ if update_clicked:
         )
     )
 
-    main_chart = alt.Chart(chart_df).mark_line().encode(
-        x=alt.X(
-        "Date:T",
-        axis=alt.Axis(
-            labelColor="orange",
-            labelAlign="center"
-            )),
-        y=y_axis,
-        color="Asset:N"
+    value_tooltip = alt.Tooltip(
+        "Value:Q",
+        title="% Change" if is_norm else "Price (USD)",
+        format=".2f" if is_norm else ",.2f"
     )
+
+    main_chart = (
+    alt.Chart(chart_df)
+    .mark_line()
+    .encode(
+        x=alt.X("Date:T", axis=alt.Axis(labelColor="orange", labelAlign="center")),
+        y=y_axis,
+        color="Asset:N",
+        opacity=alt.condition(hover_sel, alt.value(1.0), alt.value(0.25)),
+        strokeWidth=alt.condition(hover_sel, alt.value(3), alt.value(1.5)),
+        tooltip=[
+            alt.Tooltip("Date:T", title="Date"),
+            alt.Tooltip("Asset:N", title="Ticker"),
+            value_tooltip
+        ],
+    )
+    .add_params(hover_sel, click_sel)
+)
 
     def get_time_boundaries(dates, freq):
         '''Draw Vertical lines for month or year boundaries'''
@@ -356,7 +388,7 @@ if update_clicked:
     layers = [main_chart, rules]
 
     # --- Add emphasis to line at Y = 0 on the chart when using Normalized view ---
-    if view == "Normalized % Change":
+    if is_norm:
         baseline_rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(
             strokeDash=[4, 4],
             color="orange",
