@@ -95,6 +95,7 @@ def is_valid_ticker(symbol):
 # --- Fetch Ticker Price Data ---
 @st.cache_data(ttl=3600)
 def get_yf_data(tickers_list, starting_date):
+    ''' Given a list of asset tickers and initial date, return their corresponding closing price data '''
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             close = yf.download(tickers_list, start=starting_date, progress=False)["Close"]
@@ -188,7 +189,7 @@ def add_ticker():
 # --- Create sidebar Widgets ---
 with st.sidebar:
     view = st.radio("Chart Type", ["Closing Price (USD)", "Normalized % Change"], index=1)
-    
+
     st.divider()
     update_clicked = st.button("🔄 Update Graph 🔄", use_container_width=True)
     st.divider()
@@ -212,7 +213,7 @@ if update_clicked:
     selected_assets = st.session_state.selected_assets.copy()
 
     # --- Determine if we're using Narmalized or Price view ---
-    is_norm: bool = (view == "Normalized % Change")
+    is_norm = view == "Normalized % Change"
 
     # --- Date Calculations based on user selected range option ---
     days_back = range_options[selected_range]
