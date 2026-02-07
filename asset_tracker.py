@@ -28,7 +28,7 @@ import pandas as pd
 import altair as alt
 import pandas_market_calendars as mcal
 import tzlocal
-import requests
+# import requests
 
 # Get local timezone automatically
 local_tz = tzlocal.get_localzone()
@@ -49,6 +49,9 @@ default_tickers = ["SPY", "BTC-USD", "IWM", "EFA", "QQQ"]
 
 # --- Session_State initialization to establish stable defaults ---
 def init_state():
+    st.session_state.setdefault("yf_ok", False)
+    st.session_state.setdefault("applied_params", None)   # dict of last-applied settings
+    st.session_state.setdefault("graph_ready", False)     # True only after first apply
     st.session_state.setdefault("ticker_list", tickers.copy())
     st.session_state.setdefault("selected_assets", default_tickers.copy())
     st.session_state.setdefault("user_input", "")
@@ -70,21 +73,25 @@ range_options = {
 }
 
 # --- Test for connection and / or rate limiting issues ---
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def check_yfinance_connection(test_ticker):
-    '''Check to make sure we have basic functionality'''
+def ensure_yfinance_once(test_ticker="SPY"):
+    ''' Test for connection and / or rate limiting issues '''
+    if st.session_state.get("yf_ok"):
+        return  # already passed once this session
+
     try:
-        test_data = yf.download(test_ticker, period="5d", progress=False)
-        if test_data.empty:
+        df = yf.download(test_ticker, period="5d", progress=False)
+        if df.empty:
             st.error("No data from Yahoo Finance. Possible rate limiting. Please try again later.")
             st.stop()
-    except (requests.exceptions.RequestException, Exception) as e:
+    except Exception as e:
         st.error(f"Data connection error: {e}")
         st.stop()
 
+    st.session_state.yf_ok = True  # latch success
+
 # --- Validate Ticker Symbol ---
 def is_valid_ticker(symbol):
-    '''Make a minimal request to validate ticker is valid'''
+    ''' Make a minimal request to validate ticker is valid '''
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             df = yf.download(symbol, period="5d", progress=False)
@@ -188,11 +195,9 @@ def add_ticker():
 
 # --- Create sidebar Widgets ---
 with st.sidebar:
-    view = st.radio("Chart Type", ["Closing Price (USD)", "Normalized % Change"], index=1)
-
-    st.divider()
-    update_clicked = st.button("🔄 Update Graph 🔄", use_container_width=True)
-    st.divider()
+    # st.divider()
+    # update_clicked = st.button("🔄 Update Graph 🔄", use_container_width=True)
+    update_clicked = True
     selected_range = st.selectbox("Time Range", options=list(range_options.keys()))
     st.divider()
     st.multiselect(
@@ -206,9 +211,14 @@ with st.sidebar:
     expires = st.session_state.get("add_ticker_error_expires", 0)
     if msg and time.time() < expires:
         st.error(msg)
+    st.divider()
+    view = st.radio("Chart Type", ["Closing Price (USD)", "Normalized % Change"], index=1)
 
-# --- Logic only runs if button pressed, button resets to False after each pass ---
-if update_clicked:
+# Create a placeholder slot for progress status updates. Clear before displaying graphed results
+status_ph = st.empty()
+
+# This main section does the real work while updating the user on progress
+with status_ph.status("Fetching market data…", expanded=True) as status:
     # --- Make sure we have the latest list of tickers ---
     selected_assets = st.session_state.selected_assets.copy()
 
@@ -220,13 +230,16 @@ if update_clicked:
     start_date = date.today() - timedelta(days=days_back)
     adj_date = adjust_for_non_trading_day(start_date)
 
-    # --- Test for connection issues ---
-    check_yfinance_connection("SPY")
+    # # --- Test for connection issues, on first pass ---
+    status.write("Checking Yahoo Finance connectivity")
+    ensure_yfinance_once("SPY")
 
     # --- Validate selected tickers ---
+    status.write("Validating tickers")
     validate_assets(selected_assets)
 
     # --- Data Download (only selected tickers) ---
+    status.write("Downloading price data")
     if selected_assets:
         data = get_yf_data(selected_assets, adj_date)
     else:
@@ -366,7 +379,7 @@ if update_clicked:
         ],
     )
     .add_params(hover_sel, click_sel)
-)
+    )
 
     def get_time_boundaries(dates, freq):
         '''Draw Vertical lines for month or year boundaries'''
@@ -396,14 +409,11 @@ if update_clicked:
         ).encode(y="y:Q")
         layers.append(baseline_rule)
 
-    chart = alt.layer(*layers).properties(width=800, height=600).interactive()
+status_ph.empty()   # Clear and completely remove status update box
 
-    st.altair_chart(chart, width='stretch')
+chart = alt.layer(*layers).properties(width=800, height=600).interactive()
 
-    st.caption(f"**Last updated:** {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
-    st.caption(f"**Data range:** {adj_date.strftime('%Y-%m-%d')} to {date.today().strftime('%Y-%m-%d')}")
+st.altair_chart(chart, width='stretch')
 
-# --- Latest Prices ---
-# st.subheader("Latest Prices")
-# latest = data.iloc[-1]
-# st.write(latest.map("${:,.2f}".format))
+st.caption(f"**Last updated:** {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
+st.caption(f"**Data range:** {adj_date.strftime('%Y-%m-%d')} to {date.today().strftime('%Y-%m-%d')}")
