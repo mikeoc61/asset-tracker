@@ -39,8 +39,8 @@ st.set_page_config(layout="wide")
 st.title("📈 Asset Comparison")
 
 # --- User Selected Options. Must be valid Ticker Symbol ---
-tickers = ["SPY", "EFA", "IWM", "QQQ", "STRK", "NVDA", "APPL",
-           "DX-Y.NYB", "GC=F", "SI=F", "HG=F",
+tickers = ["SPY", "EFA", "IWM", "QQQ", "STRK", "NVDA", "AAPL", "TSLA",
+           "^DJI", "DX-Y.NYB", "GC=F", "SI=F", "HG=F",
            "BTC-USD", "ETH-USD", "SOL-USD"
            ]
 default_tickers = ["SPY", "IWM", "EFA", "QQQ"]
