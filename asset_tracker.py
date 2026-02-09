@@ -1,8 +1,8 @@
 """
 Asset Comparison Dashboard
 
-This Streamlit app visualizes the relationship between various assets and key Market Index indicators
-such as the S&P 500 (SPY), and Nasdaq-100 (QQQ). It allows users to explore 
+This Streamlit app visualizes the relationship between various assets and key Market Index
+indicators such as the S&P 500 (SPY), and Nasdaq-100 (QQQ). It allows users to explore 
 price trends, correlations, and normalized percentage changes over customizable time ranges.
 
 Features:
@@ -257,7 +257,7 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
     status.write("Downloading price data")
     tickers_key = tuple(sorted(selected_assets))
     start_key = pd.Timestamp(adj_date).strftime("%Y-%m-%d")
-    
+
     try:
         data = get_yf_data(tickers_key, start_key)
     except RuntimeError as e:
