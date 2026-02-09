@@ -45,13 +45,12 @@ tickers = ["SPY", "EFA", "IWM", "QQQ", "STRK", "NVDA", "APPL",
            "DX-Y.NYB", "GC=F", "SI=F", "HG=F",
            "BTC-USD", "ETH-USD", "SOL-USD"
            ]
-default_tickers = ["SPY", "BTC-USD", "IWM", "EFA", "QQQ"]
+default_tickers = ["SPY", "IWM", "EFA", "QQQ"]
 
 # --- Session_State initialization to establish stable defaults ---
 def init_state():
     st.session_state.setdefault("yf_ok", False)
     st.session_state.setdefault("applied_params", None)   # dict of last-applied settings
-    st.session_state.setdefault("graph_ready", False)     # True only after first apply
     st.session_state.setdefault("ticker_list", tickers.copy())
     st.session_state.setdefault("selected_assets", default_tickers.copy())
     st.session_state.setdefault("user_input", "")
@@ -100,21 +99,20 @@ def is_valid_ticker(symbol):
         return False
 
 # --- Fetch Ticker Price Data ---
-@st.cache_data(ttl=3600)
-def get_yf_data(tickers_list, starting_date):
-    ''' Given a list of asset tickers and initial date, return their corresponding closing price data '''
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_yf_data(tickers_key: tuple[str, ...], starting_date: str):
+    """Return closing prices for tickers starting at starting_date (YYYY-MM-DD)."""
+    tickers_list = list(tickers_key)
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             close = yf.download(tickers_list, start=starting_date, progress=False)["Close"]
 
-        # If only one ticker, yfinance may return a Series of closes
         if isinstance(close, pd.Series):
             close = close.to_frame(name=tickers_list[0])
 
         return close
     except Exception as e:
-        st.error(f"{e}")
-        st.stop()
+        raise RuntimeError(str(e)) from e
 
 # --- Start Date Adjustment ---
 def adjust_for_non_trading_day(orig_date):
@@ -155,8 +153,6 @@ def add_ticker():
     """Callback: add a single user-supplied ticker to options + selection."""
     raw = st.session_state.get("user_input", "")
     new_ticker = raw.strip().upper()
-
-    # Always clear the input so it doesn't keep re-triggering
     st.session_state.user_input = ""
 
     if not new_ticker:
@@ -174,17 +170,23 @@ def add_ticker():
         st.session_state.add_ticker_error_expires = time.time() + 2
         return
 
-    # Now do your existing validity check
+    # If ticker is already present + already selected, do nothing
+    already_in_list = new_ticker in st.session_state.ticker_list
+    already_selected = new_ticker in st.session_state.get("selected_assets", [])
+    if already_in_list and already_selected:
+        st.session_state.add_ticker_error = f"{new_ticker} is already selected."
+        st.session_state.add_ticker_error_expires = time.time() + 1.5
+        return
+
+    # Now do your existing validity check and add new ticker if valid
     if is_valid_ticker(new_ticker):
-        # Add to available options
         if new_ticker not in st.session_state.ticker_list:
             st.session_state.ticker_list.append(new_ticker)
-
-        # Preserve current multi-select choice and add the new ticker
-        current_selection = st.session_state.get("selected_assets", []).copy()
-        if new_ticker not in current_selection:
-            current_selection.append(new_ticker)
-        st.session_state.selected_assets = current_selection  # explicit reassignment
+        if new_ticker not in st.session_state.selected_assets:
+            cur = list(st.session_state.selected_assets)
+            if new_ticker not in cur:
+                cur.append(new_ticker)
+            st.session_state.selected_assets = cur
 
         # Clear any prior error
         st.session_state.add_ticker_error = ""
@@ -195,9 +197,6 @@ def add_ticker():
 
 # --- Create sidebar Widgets ---
 with st.sidebar:
-    # st.divider()
-    # update_clicked = st.button("🔄 Update Graph 🔄", use_container_width=True)
-    update_clicked = True
     selected_range = st.selectbox("Time Range", options=list(range_options.keys()))
     st.divider()
     st.multiselect(
@@ -208,14 +207,21 @@ with st.sidebar:
     st.text_input("Add ticker", key="user_input", on_change=add_ticker, placeholder="e.g., TSLA")
 
     msg = st.session_state.get("add_ticker_error", "")
-    expires = st.session_state.get("add_ticker_error_expires", 0)
+    expires = st.session_state.get("add_ticker_error_expires", 0.0)
     if msg and time.time() < expires:
         st.error(msg)
     st.divider()
     view = st.radio("Chart Type", ["Closing Price (USD)", "Normalized % Change"], index=1)
 
-# Create a placeholder slot for progress status updates. Clear before displaying graphed results
-status_ph = st.empty()
+# Create a placeholder slots for progress status updates and chart.
+chart_ph = st.empty()     # chart lives here
+status_ph = st.empty()    # status lives here
+
+# If for some reason user hasn't selected any tickers, warn and stop
+selected_assets = st.session_state.get("selected_assets", [])
+if not selected_assets:
+    chart_ph.warning("No assets selected. Choose one or more tickers in the sidebar.")
+    st.stop()
 
 # This main section does the real work while updating the user on progress
 with status_ph.status("Fetching market data…", expanded=True) as status:
@@ -235,15 +241,18 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
     ensure_yfinance_once("SPY")
 
     # --- Validate selected tickers ---
-    status.write("Validating tickers")
+    status.write(f"Validating Assets: {', '.join(selected_assets)}")
     validate_assets(selected_assets)
 
     # --- Data Download (only selected tickers) ---
     status.write("Downloading price data")
-    if selected_assets:
-        data = get_yf_data(selected_assets, adj_date)
-    else:
-        st.warning("Please select at least one ticker.")
+    tickers_key = tuple(sorted(selected_assets))
+    start_key = pd.Timestamp(adj_date).strftime("%Y-%m-%d")
+    
+    try:
+        data = get_yf_data(tickers_key, start_key)
+    except RuntimeError as e:
+        st.error(f"Download failed: {e}")
         st.stop()
 
     # Forward-fill missing values for non-trading days
@@ -413,7 +422,7 @@ status_ph.empty()   # Clear and completely remove status update box
 
 chart = alt.layer(*layers).properties(width=800, height=600).interactive()
 
-st.altair_chart(chart, width='stretch')
+chart_ph.altair_chart(chart, width="stretch")
 
 st.caption(f"**Last updated:** {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
 st.caption(f"**Data range:** {adj_date.strftime('%Y-%m-%d')} to {date.today().strftime('%Y-%m-%d')}")
