@@ -1,7 +1,7 @@
 """
-BTC-Index Dashboard
+Asset Comparison Dashboard
 
-This Streamlit app visualizes the relationship between Bitcoin (BTC) and key Market Index indicators
+This Streamlit app visualizes the relationship between various assets and key Market Index indicators
 such as the S&P 500 (SPY), and Nasdaq-100 (QQQ). It allows users to explore 
 price trends, correlations, and normalized percentage changes over customizable time ranges.
 
@@ -9,8 +9,6 @@ Features:
 - Interactive chart with optional normalization (percent change from baseline)
 - Sidebar toggles to include/exclude individual tickers
 - Date range selector: 1 Week, 3 Months, 6 Months, 1 Year, Year-To-Date (YTD)
-
-This tool helps visualize how BTC price movements align or diverge from traditional assets.
 
 Reference:
 - https://medium.com/@kasperjuunge/yfinance-10-ways-to-get-stock-data-with-python-6677f49e8282
@@ -89,6 +87,7 @@ def ensure_yfinance_once(test_ticker="SPY"):
     st.session_state.yf_ok = True  # latch success
 
 # --- Validate Ticker Symbol ---
+@st.cache_data(ttl=24*3600)
 def is_valid_ticker(symbol):
     ''' Make a minimal request to validate ticker is valid '''
     try:
@@ -128,22 +127,32 @@ def adjust_for_non_trading_day(orig_date):
     )
     return trading_days[0].date()
 
-def validate_assets(assets):
-    """
-    Validate selected tickers before fetching data. Stops execution if any ticker is invalid.
-    """
-    invalid = []
+def validate_assets(assets: list[str]) -> None:
+    """Validate selected tickers in one batch call. Stops if any invalid."""
+    if not assets:
+        st.warning("Please select at least one asset.")
+        st.stop()
 
-    for ticker in assets:
-        if not is_valid_ticker(ticker):
-            invalid.append(ticker)
-        time.sleep(0.5)  # rate-limit API calls only
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        df = yf.download(assets, period="5d", progress=False)
+
+    if df.empty:
+        st.error("Yahoo Finance returned no data (possible throttle). Try again later.")
+        st.stop()
+
+    close = df["Close"] if isinstance(df.columns, pd.MultiIndex) else df.get("Close", df)
+
+    # Normalize single-ticker shape to DataFrame
+    if isinstance(close, pd.Series):
+        close = close.to_frame(name=assets[0])
+
+    invalid = []
+    for t in assets:
+        if (t not in close.columns) or close[t].isna().all():
+            invalid.append(t)
 
     if invalid:
-        st.error(
-            f"Invalid ticker(s): {', '.join(invalid)}. "
-            "Please correct your selection."
-        )
+        st.error(f"Invalid ticker(s): {', '.join(invalid)}. Please correct your selection.")
         st.stop()
 
 # Allow common Yahoo formats: BRK.B, BTC-USD, GC=F, ^GSPC, DX-Y.NYB, etc.
