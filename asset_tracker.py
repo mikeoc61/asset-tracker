@@ -99,9 +99,9 @@ def is_valid_ticker(symbol):
 
 # --- Fetch Ticker Price Data ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_yf_data(tickers_key: tuple[str, ...], starting_date: str):
+def get_yf_data(sel_tickers_key: tuple[str, ...], starting_date: str):
     """Return closing prices for tickers starting at starting_date (YYYY-MM-DD)."""
-    tickers_list = list(tickers_key)
+    tickers_list = list(sel_tickers_key)
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             close = yf.download(tickers_list, start=starting_date, progress=False)["Close"]
@@ -147,9 +147,9 @@ def validate_assets(assets: list[str]) -> None:
         close = close.to_frame(name=assets[0])
 
     invalid = []
-    for t in assets:
-        if (t not in close.columns) or close[t].isna().all():
-            invalid.append(t)
+    for sym in assets:
+        if (sym not in close.columns) or close[sym].isna().all():
+            invalid.append(sym)
 
     if invalid:
         st.error(f"Invalid ticker(s): {', '.join(invalid)}. Please correct your selection.")
