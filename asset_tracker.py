@@ -381,13 +381,30 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
         format=".2f" if is_norm else ",.2f"
     )
 
+    # Compute legend order sorted from highest to lowest
+    last_values = (
+        chart_df
+        .dropna(subset=["Value"])
+        .sort_values("Date")
+        .groupby("Asset")["Value"]
+        .last()
+        .sort_values(ascending=False)
+    )
+
+    legend_order = last_values.index.tolist()
+
     main_chart = (
     alt.Chart(chart_df)
     .mark_line()
     .encode(
         x=alt.X("Date:T", axis=alt.Axis(labelColor="orange", labelAlign="center")),
         y=y_axis,
-        color="Asset:N",
+        # color="Asset:N",
+        color=alt.Color(
+            "Asset:N",
+            sort=legend_order,
+            legend=alt.Legend(title="Asset (sorted)")
+        ),
         opacity=alt.condition(hover_sel, alt.value(1.0), alt.value(0.25)),
         strokeWidth=alt.condition(hover_sel, alt.value(3), alt.value(1.5)),
         tooltip=[
