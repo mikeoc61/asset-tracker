@@ -26,6 +26,9 @@ import pandas as pd
 import altair as alt
 import pandas_market_calendars as mcal
 import tzlocal
+
+from btc_macro.transforms import normalize_prices, prepare_price_data, to_chart_frame
+from btc_macro.yahoo import extract_close_prices
 # import requests
 
 # Get local timezone automatically
@@ -47,7 +50,6 @@ default_tickers = ["SPY", "IWM", "EFA", "QQQ"]
 
 # --- Session_State initialization to establish stable defaults ---
 def init_state():
-    st.session_state.setdefault("yf_ok", False)
     st.session_state.setdefault("applied_params", None)   # dict of last-applied settings
     st.session_state.setdefault("ticker_list", tickers.copy())
     st.session_state.setdefault("selected_assets", default_tickers.copy())
@@ -69,23 +71,6 @@ range_options = {
     "5 Years": (365*5)
 }
 
-# --- Test for connection and / or rate limiting issues ---
-def ensure_yfinance_once(test_ticker="SPY"):
-    ''' Test for connection and / or rate limiting issues '''
-    if st.session_state.get("yf_ok"):
-        return  # already passed once this session
-
-    try:
-        df = yf.download(test_ticker, period="5d", progress=False)
-        if df.empty:
-            st.error("No data from Yahoo Finance. Possible rate limiting. Please try again later.")
-            st.stop()
-    except Exception as e:
-        st.error(f"Data connection error: {e}")
-        st.stop()
-
-    st.session_state.yf_ok = True  # latch success
-
 # --- Validate Ticker Symbol ---
 @st.cache_data(ttl=24*3600)
 def is_valid_ticker(symbol):
@@ -104,13 +89,17 @@ def get_yf_data(sel_tickers_key: tuple[str, ...], starting_date: str):
     tickers_list = list(sel_tickers_key)
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            close = yf.download(tickers_list, start=starting_date, progress=False)["Close"]
+            downloaded = yf.download(tickers_list, start=starting_date, progress=False)
 
-        if isinstance(close, pd.Series):
-            close = close.to_frame(name=tickers_list[0])
+        if downloaded.empty:
+            raise RuntimeError(
+                "Yahoo Finance returned no data. It may be temporarily unavailable or rate limited."
+            )
 
-        return close
+        return extract_close_prices(downloaded, tickers_list)
     except Exception as e:
+        if isinstance(e, RuntimeError):
+            raise
         raise RuntimeError(str(e)) from e
 
 # --- Start Date Adjustment ---
@@ -126,34 +115,6 @@ def adjust_for_non_trading_day(orig_date):
         end_date=(date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
     )
     return trading_days[0].date()
-
-def validate_assets(assets: list[str]) -> None:
-    """Validate selected tickers in one batch call. Stops if any invalid."""
-    if not assets:
-        st.warning("Please select at least one asset.")
-        st.stop()
-
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        df = yf.download(assets, period="5d", progress=False)
-
-    if df.empty:
-        st.error("Yahoo Finance returned no data (possible throttle). Try again later.")
-        st.stop()
-
-    close = df["Close"] if isinstance(df.columns, pd.MultiIndex) else df.get("Close", df)
-
-    # Normalize single-ticker shape to DataFrame
-    if isinstance(close, pd.Series):
-        close = close.to_frame(name=assets[0])
-
-    invalid = []
-    for sym in assets:
-        if (sym not in close.columns) or close[sym].isna().all():
-            invalid.append(sym)
-
-    if invalid:
-        st.error(f"Invalid ticker(s): {', '.join(invalid)}. Please correct your selection.")
-        st.stop()
 
 # Allow common Yahoo formats: BRK.B, BTC-USD, GC=F, ^GSPC, DX-Y.NYB, etc.
 _TICKER_RE = re.compile(r"^[A-Z0-9.\-=\^]+$")
@@ -245,16 +206,8 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
     start_date = date.today() - timedelta(days=days_back)
     adj_date = adjust_for_non_trading_day(start_date)
 
-    # # --- Test for connection issues, on first pass ---
-    status.write("Checking Yahoo Finance connectivity")
-    ensure_yfinance_once("SPY")
-
-    # --- Validate selected tickers ---
-    status.write(f"Validating Assets: {', '.join(selected_assets)}")
-    validate_assets(selected_assets)
-
-    # --- Data Download (only selected tickers) ---
-    status.write("Downloading price data")
+    # Downloading once also verifies connectivity and identifies missing tickers.
+    status.write(f"Downloading price data: {', '.join(selected_assets)}")
     tickers_key = tuple(sorted(selected_assets))
     start_key = pd.Timestamp(adj_date).strftime("%Y-%m-%d")
 
@@ -264,25 +217,13 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
         st.error(f"Download failed: {e}")
         st.stop()
 
-    # Forward-fill missing values for non-trading days
-    # Combine into one DataFrame and trim rows before adjusted start_date
-    # Filter by user-selected assets. Include assets with data gaps
-    combined = pd.DataFrame(data).ffill()
-    combined = combined[combined.index >= pd.to_datetime(start_date)]
-    filtered_data = combined[selected_assets]
-
-    # --- Make sure the DataFrame index is a DatetimeIndex (safety check) ---
-    if not isinstance(filtered_data.index, pd.DatetimeIndex):
-        filtered_data.index = pd.to_datetime(filtered_data.index)
-
-    # --- Drop assets with no data in selected range ---
-    all_nan_assets = filtered_data.columns[filtered_data.isna().all()].tolist()
-
+    # Align downloaded observations and remove assets with no usable data.
+    filtered_data, all_nan_assets = prepare_price_data(
+        data,
+        selected_assets,
+        start_date,
+    )
     if all_nan_assets:
-        # Remove them from the DataFrame
-        filtered_data = filtered_data.drop(columns=all_nan_assets)
-
-        # Optional: warn user (non-fatal)
         st.warning(
             f"Removed asset(s) with no data in selected range: {', '.join(all_nan_assets)}"
         )
@@ -313,26 +254,12 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
 
     # --- Normalize Data if User Specified, otherwise graph actual asset price ---
     if is_norm:
-        # first non-NaN per column; returns NaN if the entire column is NaN
-        baseline = filtered_data.apply(pd.Series.first_valid_index)
-        baseline_values = pd.Series(index=filtered_data.columns, dtype="float64")
-
-        for c in filtered_data.columns:
-            idx = baseline[c]
-            baseline_values[c] = filtered_data.loc[idx, c] if idx is not None else float("nan")
-
-        # Avoid division by zero; keep NaN columns as NaN
-        baseline_values = baseline_values.replace(0, pd.NA)
-
-        chart_data = (filtered_data.divide(baseline_values, axis=1) - 1) * 100
+        chart_data = normalize_prices(filtered_data)
     else:
         chart_data = filtered_data.copy()
 
     # --- Construct Altair Chart ---
-    chart_data = chart_data.copy()
-    chart_data.index = pd.to_datetime(chart_data.index)
-    chart_data.index.name = "Date"
-    chart_df = chart_data.reset_index().melt(id_vars="Date", var_name="Asset", value_name="Value")
+    chart_df = to_chart_frame(chart_data)
 
     # Hover highlight (visual only)
     hover_sel = alt.selection_point(
