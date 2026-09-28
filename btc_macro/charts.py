@@ -90,7 +90,8 @@ def build_comparison_chart(
         x_scale = alt.Scale(domain=[first_date, last_date + date_span * 0.3])
 
     color = alt.Color(
-        "Asset:N", sort=legend_order, legend=alt.Legend(title="Asset (sorted)")
+        "Asset:N", sort=legend_order,
+        legend=None if is_normalized else alt.Legend(title="Asset (sorted)"),
     )
     main_chart = (
         alt.Chart(chart_df)

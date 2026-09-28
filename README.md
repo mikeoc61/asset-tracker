@@ -16,7 +16,7 @@ ETFs, market indexes, commodities, and cryptocurrencies.
 - Choose ranges from one week through five years.
 - Display mixed equity and cryptocurrency calendars on one chart.
 - Patch the latest available crypto quotes into the current-day view.
-- Highlight individual series and sort the legend by latest value.
+- Highlight individual series and sort the closing-price legend by latest value.
 - Read ticker and return labels at line endpoints in normalized mode.
 - Cache historical downloads, ticker validation, and current quotes.
 

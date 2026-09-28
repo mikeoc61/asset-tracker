@@ -13,11 +13,12 @@ class ComparisonChartTests(unittest.TestCase):
             index=pd.to_datetime(["2025-01-02", "2025-02-03", "2026-01-02"]),
         )
 
-    def test_normalized_chart_preserves_baseline_legend_and_padded_domain(self):
+    def test_normalized_chart_preserves_baseline_color_order_and_padded_domain(self):
         spec = build_comparison_chart(self.prices, True, 365).to_dict()
         self.assertEqual(len(spec["layer"]), 5)
         encoding = spec["layer"][0]["encoding"]
         self.assertEqual(encoding["color"]["sort"], ["BTC-USD", "SPY"])
+        self.assertIsNone(encoding["color"]["legend"])
         self.assertEqual(encoding["y"]["title"], "% Change")
         self.assertEqual(encoding["y"]["scale"]["domain"], [-4.5, 34.5])
         self.assertTrue(any(p.get("select", {}).get("on") == "mouseover" for p in spec["params"]))
@@ -26,6 +27,10 @@ class ComparisonChartTests(unittest.TestCase):
         spec = build_comparison_chart(self.prices, False, 1095).to_dict()
         self.assertEqual(len(spec["layer"]), 2)
         self.assertEqual(spec["layer"][0]["encoding"]["y"]["title"], "Price (USD)")
+        self.assertEqual(
+            spec["layer"][0]["encoding"]["color"]["legend"]["title"],
+            "Asset (sorted)",
+        )
         boundary_data = spec["datasets"][spec["layer"][1]["data"]["name"]]
         self.assertEqual(len(boundary_data), 2)
 
