@@ -108,7 +108,7 @@ def build_comparison_chart(
     )
     main_chart = (
         alt.Chart(chart_df)
-        .mark_line()
+        .mark_line(point=prices.index.nunique() == 1)
         .encode(
             x=alt.X(
                 "Date:T", title="Date", scale=x_scale,

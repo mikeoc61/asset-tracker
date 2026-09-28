@@ -8,6 +8,38 @@ from btc_macro.transforms import normalize_prices, prepare_price_data, to_chart_
 
 
 class PreparePriceDataTests(unittest.TestCase):
+    def test_custom_range_excludes_later_prices_and_normalizes_within_range(self):
+        raw = pd.DataFrame(
+            {"SPY": [80.0, 100.0, 110.0, 900.0]},
+            index=pd.to_datetime(["2025-01-01", "2025-01-02", "2025-01-03", "2025-01-04"]),
+        )
+        original = raw.copy()
+
+        prepared, removed = prepare_price_data(
+            raw, ["SPY"], date(2025, 1, 2), date(2025, 1, 3),
+        )
+        normalized = normalize_prices(prepared)
+
+        self.assertEqual(removed, [])
+        self.assertEqual(prepared["SPY"].tolist(), [100.0, 110.0])
+        self.assertAlmostEqual(normalized["SPY"].iloc[0], 0.0)
+        self.assertAlmostEqual(normalized["SPY"].iloc[-1], 10.0)
+        assert_frame_equal(raw, original)
+
+    def test_asset_with_data_only_after_end_is_removed(self):
+        raw = pd.DataFrame(
+            {"SPY": [100.0, 110.0], "NEW": [None, 200.0]},
+            index=pd.to_datetime(["2025-01-02", "2025-01-03"]),
+        )
+
+        prepared, removed = prepare_price_data(
+            raw, ["SPY", "NEW"], date(2025, 1, 2), date(2025, 1, 2),
+        )
+
+        self.assertEqual(removed, ["NEW"])
+        self.assertEqual(prepared.columns.tolist(), ["SPY"])
+        self.assertEqual(prepared["SPY"].tolist(), [100.0])
+
     def test_crypto_weekend_start_keeps_equity_baseline_on_first_trading_day(self):
         raw = pd.DataFrame(
             {"SPY": [None, None, 100.0, 110.0], "BTC-USD": [200.0, 220.0, 240.0, 260.0]},

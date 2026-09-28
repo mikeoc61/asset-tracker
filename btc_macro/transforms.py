@@ -1,7 +1,7 @@
 """Pure data transformations used by the Streamlit dashboard."""
 
 from datetime import date
-from typing import Union
+from typing import Optional, Union
 
 import pandas as pd
 
@@ -10,11 +10,14 @@ def prepare_price_data(
     data: Union[pd.DataFrame, pd.Series],
     selected_assets: list[str],
     start_date: date,
+    end_date: Optional[date] = None,
 ) -> tuple[pd.DataFrame, list[str]]:
-    """Align downloaded prices and remove assets with no usable observations."""
+    """Align prices within inclusive bounds and remove assets with no data."""
     combined = pd.DataFrame(data).ffill()
     combined.index = pd.to_datetime(combined.index)
     combined = combined[combined.index >= pd.Timestamp(start_date)]
+    if end_date is not None:
+        combined = combined[combined.index < pd.Timestamp(end_date) + pd.Timedelta(days=1)]
     filtered = combined.loc[:, selected_assets].copy()
 
     all_nan_assets = filtered.columns[filtered.isna().all()].tolist()

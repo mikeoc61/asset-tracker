@@ -39,6 +39,13 @@ class ComparisonChartTests(unittest.TestCase):
         spec = build_comparison_chart(prices, True, 7).to_dict()
         self.assertEqual(spec["layer"][0]["encoding"]["y"]["scale"]["domain"], [-1.0, 1.0])
 
+    def test_single_day_range_has_visible_points_in_both_modes(self):
+        prices = pd.DataFrame({"SPY": [100.0]}, index=pd.to_datetime(["2026-01-02"]))
+        for is_normalized in (False, True):
+            with self.subTest(is_normalized=is_normalized):
+                spec = build_comparison_chart(prices, is_normalized, 0).to_dict()
+                self.assertTrue(spec["layer"][0]["mark"]["point"])
+
     def test_labels_use_each_assets_last_valid_return_and_date(self):
         spec = build_comparison_chart(self.prices, True, 365).to_dict()
         text_layer = spec["layer"][-1]

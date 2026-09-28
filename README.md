@@ -13,7 +13,7 @@ ETFs, market indexes, commodities, and cryptocurrencies.
 - Download closing-price history from Yahoo Finance.
 - Compare actual prices or normalized percentage returns.
 - Select common assets or add a valid Yahoo Finance ticker.
-- Choose ranges from one week through five years.
+- Choose preset ranges from one week through five years, or custom start/end dates.
 - Display mixed equity and cryptocurrency calendars on one chart.
 - Patch the latest available crypto quotes into the current-day view.
 - Highlight individual series and sort the closing-price legend by latest value.
@@ -30,6 +30,9 @@ btc_macro/
   transforms.py           Price preparation and normalization
   yahoo.py                Yahoo Finance access and response handling
 tests/
+  test_app.py             Offline Streamlit date-range interaction tests
+  test_dates.py           Preset and custom date-range tests
+  test_charts.py          Chart structure and endpoint-label tests
   test_transforms.py      Data-transformation tests
   test_yahoo.py           Yahoo response and current-price tests
 .github/workflows/
@@ -91,6 +94,12 @@ clearing the application cache alone does not necessarily restart the process.
 - Crypto trades continuously, while other assets follow their market calendars.
 - Requested ranges preserve weekend and holiday starts; each asset begins at its
   first available observation. YTD starts on January 1.
+- For custom ranges, select **Custom** under **Time Range**, choose the start and
+  end dates, and click **Apply dates**. Both dates are included; future dates and
+  reversed ranges are not allowed. A single-day range displays points. Applied
+  custom dates are remembered while switching presets within the same session.
+- Historical ranges ending before today use closing-price history only; current
+  crypto quotes are added only when the selected range ends today.
 - Dates use the runtime machine's timezone (shown beneath the chart), which may
   differ between local and hosted deployments.
 - Current crypto-price lookup failures are non-fatal; historical data still renders.

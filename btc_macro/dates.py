@@ -22,3 +22,23 @@ def range_start(selected_range: str, today: date) -> date:
     if days is None:
         return date(today.year, 1, 1)
     return today - timedelta(days=days)
+
+
+def resolve_date_range(
+    selected_range: str,
+    today: date,
+    custom_start: Optional[date] = None,
+    custom_end: Optional[date] = None,
+) -> tuple[date, date]:
+    """Return inclusive calendar bounds, validating user-supplied dates."""
+    if selected_range != "Custom":
+        return range_start(selected_range, today), today
+
+    if custom_start is None or custom_end is None:
+        raise ValueError("Choose both a start date and an end date.")
+    if custom_start > custom_end:
+        raise ValueError("Start date must be on or before end date.")
+    if custom_end > today:
+        raise ValueError("End date cannot be later than today.")
+
+    return custom_start, custom_end

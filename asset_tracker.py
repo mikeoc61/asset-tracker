@@ -8,13 +8,13 @@ price trends, correlations, and normalized percentage changes over customizable 
 Features:
 - Interactive chart with optional normalization (percent change from baseline)
 - Sidebar toggles to include/exclude individual tickers
-- Date range selector: 1 Week, 3 Months, 6 Months, 1 Year, Year-To-Date (YTD)
+- Preset and custom date ranges with inclusive start and end dates
 
 Reference:
 - https://medium.com/@kasperjuunge/yfinance-10-ways-to-get-stock-data-with-python-6677f49e8282
 """
 
-from datetime import datetime
+from datetime import date, datetime
 import time
 import re
 
@@ -22,7 +22,7 @@ import streamlit as st
 import tzlocal
 
 from btc_macro.charts import build_comparison_chart
-from btc_macro.dates import RANGE_OPTIONS, range_start
+from btc_macro.dates import RANGE_OPTIONS, range_start, resolve_date_range
 from btc_macro.transforms import normalize_prices, prepare_price_data
 from btc_macro.yahoo import (
     apply_current_prices,
@@ -67,9 +67,11 @@ def is_valid_ticker(symbol):
 
 # --- Fetch Ticker Price Data ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_yf_data(sel_tickers_key: tuple[str, ...], starting_date: str):
-    """Return closing prices for tickers starting at starting_date (YYYY-MM-DD)."""
-    return download_close_prices(list(sel_tickers_key), starting_date)
+def get_yf_data(sel_tickers_key: tuple[str, ...], starting_date: str, ending_date: str):
+    """Cache closing prices by tickers and both inclusive date bounds."""
+    return download_close_prices(
+        list(sel_tickers_key), starting_date, ending_date=ending_date,
+    )
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -128,7 +130,26 @@ def add_ticker():
 
 # --- Create sidebar Widgets ---
 with st.sidebar:
-    selected_range = st.selectbox("Time Range", options=list(RANGE_OPTIONS.keys()))
+    selected_range = st.selectbox("Time Range", options=[*RANGE_OPTIONS, "Custom"])
+    custom_start = custom_end = None
+    custom_submitted = False
+    if selected_range == "Custom":
+        saved_start, saved_end = st.session_state.get(
+            "custom_date_range", (range_start("1 Month", local_today), local_today),
+        )
+        with st.form("custom_dates"):
+            custom_start = st.date_input(
+                "Start date", value=saved_start,
+                min_value=date(1900, 1, 1), max_value=local_today,
+                key="custom_start", format="YYYY-MM-DD",
+            )
+            custom_end = st.date_input(
+                "End date", value=saved_end,
+                min_value=date(1900, 1, 1), max_value=local_today,
+                key="custom_end", format="YYYY-MM-DD",
+            )
+            st.caption("Both dates are included. Historical ranges use closing prices only.")
+            custom_submitted = st.form_submit_button("Apply dates")
     st.divider()
     st.multiselect(
         "Select Assets", 
@@ -148,6 +169,18 @@ with st.sidebar:
 chart_ph = st.empty()     # chart lives here
 status_ph = st.empty()    # status lives here
 
+try:
+    start_date, end_date = resolve_date_range(
+        selected_range, local_today, custom_start, custom_end,
+    )
+except ValueError as e:
+    chart_ph.warning(str(e))
+    st.stop()
+
+if custom_submitted:
+    # Separate from widget keys, which Streamlit removes while Custom is hidden.
+    st.session_state.custom_date_range = (start_date, end_date)
+
 # If for some reason user hasn't selected any tickers, warn and stop
 selected_assets = st.session_state.get("selected_assets", [])
 if not selected_assets:
@@ -162,17 +195,16 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
     # --- Determine if we're using Narmalized or Price view ---
     is_norm = view == "Normalized % Change"
 
-    # --- Date Calculations based on user selected range option ---
-    start_date = range_start(selected_range, local_today)
-    days_back = (local_today - start_date).days
+    days_back = (end_date - start_date).days
 
     # Downloading once also verifies connectivity and identifies missing tickers.
     status.write(f"Downloading price data: {', '.join(selected_assets)}")
     tickers_key = tuple(sorted(selected_assets))
     start_key = start_date.isoformat()
+    end_key = end_date.isoformat()
 
     try:
-        data = get_yf_data(tickers_key, start_key)
+        data = get_yf_data(tickers_key, start_key, end_key)
     except RuntimeError as e:
         st.error(f"Download failed: {e}")
         st.stop()
@@ -182,6 +214,7 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
         data,
         selected_assets,
         start_date,
+        end_date,
     )
     if all_nan_assets:
         st.warning(
@@ -196,13 +229,14 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
     # --- Looks like we're good to proceed so sync selected_assets with filtered data ---
     selected_assets = filtered_data.columns.tolist()
 
-    # Patch one shared row with briefly cached current prices for 24/7 assets.
+    # Only a range ending today may include current crypto quotes.
     crypto_assets = tuple(ticker for ticker in selected_assets if "-USD" in ticker)
-    filtered_data = apply_current_prices(
-        filtered_data,
-        get_current_prices(crypto_assets),
-        local_today,
-    )
+    if end_date == local_today and crypto_assets:
+        filtered_data = apply_current_prices(
+            filtered_data,
+            get_current_prices(crypto_assets),
+            local_today,
+        )
 
     # --- Normalize Data if User Specified, otherwise graph actual asset price ---
     if is_norm:
@@ -217,4 +251,4 @@ status_ph.empty()   # Clear and completely remove status update box
 chart_ph.altair_chart(chart, width="stretch")
 
 st.caption(f"**Last updated:** {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
-st.caption(f"**Requested date range:** {start_date.isoformat()} to {local_today.isoformat()}")
+st.caption(f"**Requested date range:** {start_date.isoformat()} to {end_date.isoformat()}")

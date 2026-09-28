@@ -1,5 +1,6 @@
 import unittest
 from datetime import date
+from unittest.mock import Mock
 
 import pandas as pd
 from pandas.testing import assert_frame_equal
@@ -102,6 +103,30 @@ class YahooAccessTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "returned no data"):
             download_close_prices(["SPY"], "2025-01-01", downloader)
+
+    def test_download_converts_inclusive_end_to_exclusive_yahoo_end(self):
+        response = pd.DataFrame({"Close": [100.0]}, index=pd.to_datetime(["2025-12-31"]))
+        downloader = Mock(return_value=response)
+
+        download_close_prices(
+            ["SPY"], "2025-12-01", downloader, ending_date="2025-12-31",
+        )
+
+        downloader.assert_called_once_with(
+            ["SPY"], start="2025-12-01", end="2026-01-01", progress=False,
+        )
+
+    def test_download_accepts_a_single_day_range(self):
+        response = pd.DataFrame({"Close": [100.0]}, index=pd.to_datetime(["2025-01-02"]))
+        downloader = Mock(return_value=response)
+
+        download_close_prices(
+            ["SPY"], "2025-01-02", downloader, ending_date="2025-01-02",
+        )
+
+        downloader.assert_called_once_with(
+            ["SPY"], start="2025-01-02", end="2025-01-03", progress=False,
+        )
 
     def test_ticker_validation_handles_success_and_failure(self):
         valid = lambda *args, **kwargs: pd.DataFrame({"Close": [100.0]})

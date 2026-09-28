@@ -2,7 +2,7 @@
 
 import contextlib
 import io
-from datetime import date
+from datetime import date, timedelta
 from typing import Callable, Optional
 
 import pandas as pd
@@ -27,16 +27,25 @@ def download_close_prices(
     tickers: list[str],
     starting_date: str,
     downloader: Optional[Callable] = None,
+    *,
+    ending_date: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Download closing prices and normalize Yahoo's response shape."""
+    """Download closing prices with an optional inclusive end date."""
     download = downloader or yf.download
     try:
+        download_options = {"start": starting_date, "progress": False}
+        if ending_date is not None:
+            # Yahoo's end parameter is exclusive; dashboard dates are inclusive.
+            download_options["end"] = (
+                date.fromisoformat(ending_date) + timedelta(days=1)
+            ).isoformat()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            downloaded = download(tickers, start=starting_date, progress=False)
+            downloaded = download(tickers, **download_options)
 
         if downloaded.empty:
             raise RuntimeError(
-                "Yahoo Finance returned no data. It may be temporarily unavailable or rate limited."
+                "Yahoo Finance returned no data for the selected assets and date range. "
+                "Try another range; the service may also be temporarily unavailable or rate limited."
             )
 
         return extract_close_prices(downloaded, tickers)
