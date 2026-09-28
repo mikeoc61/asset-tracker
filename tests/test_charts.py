@@ -2,7 +2,8 @@ import unittest
 
 import pandas as pd
 
-from btc_macro.charts import build_comparison_chart
+from btc_macro.charts import _endpoint_labels, build_comparison_chart
+from btc_macro.transforms import to_chart_frame
 
 
 class ComparisonChartTests(unittest.TestCase):
@@ -14,7 +15,7 @@ class ComparisonChartTests(unittest.TestCase):
 
     def test_normalized_chart_preserves_baseline_legend_and_padded_domain(self):
         spec = build_comparison_chart(self.prices, True, 365).to_dict()
-        self.assertEqual(len(spec["layer"]), 3)
+        self.assertEqual(len(spec["layer"]), 5)
         encoding = spec["layer"][0]["encoding"]
         self.assertEqual(encoding["color"]["sort"], ["BTC-USD", "SPY"])
         self.assertEqual(encoding["y"]["title"], "% Change")
@@ -32,6 +33,27 @@ class ComparisonChartTests(unittest.TestCase):
         prices = pd.DataFrame({"SPY": [0.0]}, index=pd.to_datetime(["2026-01-02"]))
         spec = build_comparison_chart(prices, True, 7).to_dict()
         self.assertEqual(spec["layer"][0]["encoding"]["y"]["scale"]["domain"], [-1.0, 1.0])
+
+    def test_labels_use_each_assets_last_valid_return_and_date(self):
+        spec = build_comparison_chart(self.prices, True, 365).to_dict()
+        text_layer = spec["layer"][-1]
+        rows = spec["datasets"][text_layer["data"]["name"]]
+        labels = {row["Asset"]: row for row in rows}
+        self.assertEqual(labels["SPY"]["Label"], "SPY +10.0%")
+        self.assertTrue(labels["SPY"]["Date"].startswith("2025-02-03"))
+        self.assertEqual(labels["BTC-USD"]["Label"], "BTC-USD +30.0%")
+        self.assertEqual(labels["BTC-USD"]["Value"], 30.0)
+
+    def test_close_returns_get_separated_without_changing_actual_values(self):
+        prices = pd.DataFrame(
+            {"A": [9.99], "B": [10.0], "C": [10.01], "LOSS": [-2.5]},
+            index=pd.to_datetime(["2026-01-02"]),
+        )
+        labels = _endpoint_labels(to_chart_frame(prices), [-5.0, 15.0])
+        self.assertGreaterEqual(labels["LabelValue"].diff().dropna().min(), 0.6 - 1e-10)
+        self.assertTrue(labels["LabelValue"].between(-4.6, 14.6).all())
+        self.assertEqual(labels.set_index("Asset").at["LOSS", "Label"], "LOSS -2.5%")
+        self.assertEqual(labels.set_index("Asset").at["C", "Value"], 10.01)
 
 
 if __name__ == "__main__":
