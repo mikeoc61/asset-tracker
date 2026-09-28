@@ -14,16 +14,16 @@ Reference:
 - https://medium.com/@kasperjuunge/yfinance-10-ways-to-get-stock-data-with-python-6677f49e8282
 """
 
-from datetime import date, timedelta, datetime
+from datetime import datetime
 import time
 import re
 
 import streamlit as st
 import pandas as pd
 import altair as alt
-import pandas_market_calendars as mcal
 import tzlocal
 
+from btc_macro.dates import RANGE_OPTIONS, range_start
 from btc_macro.transforms import normalize_prices, prepare_price_data, to_chart_frame
 from btc_macro.yahoo import (
     apply_current_prices,
@@ -60,18 +60,6 @@ def init_state():
 
 init_state()
 
-# Time range options specified in days
-range_options = {
-    "1 Week": 7,
-    "1 Month": 31,
-    "3 Months": 93,
-    "6 Months": 182,
-    "YTD": (local_today - date(local_today.year, 1, 1)).days,
-    "1 Year": 365,
-    "3 Years": (365*3),
-    "5 Years": (365*5)
-}
-
 # --- Validate Ticker Symbol ---
 @st.cache_data(ttl=24*3600)
 def is_valid_ticker(symbol):
@@ -89,20 +77,6 @@ def get_yf_data(sel_tickers_key: tuple[str, ...], starting_date: str):
 def get_current_prices(tickers_key: tuple[str, ...]) -> dict[str, float]:
     """Return briefly cached current prices for 24/7 assets."""
     return fetch_current_prices(list(tickers_key))
-
-# --- Start Date Adjustment ---
-def adjust_for_non_trading_day(orig_date):
-    '''
-    Adjust start start date to next trading day if otherwise starts on a US holiday
-    Important so that data series always starts with an actual value
-    '''
-    nyse = mcal.get_calendar("NYSE")
-    # Generate valid trading days from start_date onward
-    trading_days = nyse.valid_days(
-        start_date=orig_date.strftime("%Y-%m-%d"),
-        end_date=(date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
-    )
-    return trading_days[0].date()
 
 # Allow common Yahoo formats: BRK.B, BTC-USD, GC=F, ^GSPC, DX-Y.NYB, etc.
 _TICKER_RE = re.compile(r"^[A-Z0-9.\-=\^]+$")
@@ -155,7 +129,7 @@ def add_ticker():
 
 # --- Create sidebar Widgets ---
 with st.sidebar:
-    selected_range = st.selectbox("Time Range", options=list(range_options.keys()))
+    selected_range = st.selectbox("Time Range", options=list(RANGE_OPTIONS.keys()))
     st.divider()
     st.multiselect(
         "Select Assets", 
@@ -190,14 +164,13 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
     is_norm = view == "Normalized % Change"
 
     # --- Date Calculations based on user selected range option ---
-    days_back = range_options[selected_range]
-    start_date = date.today() - timedelta(days=days_back)
-    adj_date = adjust_for_non_trading_day(start_date)
+    start_date = range_start(selected_range, local_today)
+    days_back = (local_today - start_date).days
 
     # Downloading once also verifies connectivity and identifies missing tickers.
     status.write(f"Downloading price data: {', '.join(selected_assets)}")
     tickers_key = tuple(sorted(selected_assets))
-    start_key = pd.Timestamp(adj_date).strftime("%Y-%m-%d")
+    start_key = start_date.isoformat()
 
     try:
         data = get_yf_data(tickers_key, start_key)
@@ -358,4 +331,4 @@ chart = alt.layer(*layers).properties(width=800, height=600).interactive()
 chart_ph.altair_chart(chart, width="stretch")
 
 st.caption(f"**Last updated:** {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
-st.caption(f"**Data range:** {adj_date.strftime('%Y-%m-%d')} to {date.today().strftime('%Y-%m-%d')}")
+st.caption(f"**Requested date range:** {start_date.isoformat()} to {local_today.isoformat()}")

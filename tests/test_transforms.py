@@ -8,6 +8,20 @@ from btc_macro.transforms import normalize_prices, prepare_price_data, to_chart_
 
 
 class PreparePriceDataTests(unittest.TestCase):
+    def test_crypto_weekend_start_keeps_equity_baseline_on_first_trading_day(self):
+        raw = pd.DataFrame(
+            {"SPY": [None, None, 100.0, 110.0], "BTC-USD": [200.0, 220.0, 240.0, 260.0]},
+            index=pd.to_datetime(["2026-09-19", "2026-09-20", "2026-09-21", "2026-09-22"]),
+        )
+        prepared, removed = prepare_price_data(raw, ["SPY", "BTC-USD"], date(2026, 9, 19))
+        normalized = normalize_prices(prepared)
+
+        self.assertEqual(removed, [])
+        self.assertEqual(len(prepared), 4)
+        self.assertTrue(normalized["SPY"].iloc[:2].isna().all())
+        self.assertAlmostEqual(normalized["SPY"].iloc[-1], 10.0)
+        self.assertAlmostEqual(normalized["BTC-USD"].iloc[-1], 30.0)
+
     def test_filters_dates_forward_fills_and_removes_empty_assets(self):
         raw = pd.DataFrame(
             {

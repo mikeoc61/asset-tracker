@@ -24,6 +24,7 @@ ETFs, market indexes, commodities, and cryptocurrencies.
 ```text
 asset_tracker.py          Streamlit entry point and chart UI
 btc_macro/
+  dates.py                Calendar-date range calculations
   transforms.py           Price preparation and normalization
   yahoo.py                Yahoo Finance access and response handling
 tests/
@@ -86,6 +87,10 @@ clearing the application cache alone does not necessarily restart the process.
 - Normalized percentage change is the default chart view.
 - Each asset is normalized from its first valid value in the selected range.
 - Crypto trades continuously, while other assets follow their market calendars.
+- Requested ranges preserve weekend and holiday starts; each asset begins at its
+  first available observation. YTD starts on January 1.
+- Dates use the runtime machine's timezone (shown beneath the chart), which may
+  differ between local and hosted deployments.
 - Current crypto-price lookup failures are non-fatal; historical data still renders.
 - Market data is provided for informational and visualization purposes.
 
