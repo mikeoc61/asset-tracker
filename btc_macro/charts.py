@@ -84,10 +84,23 @@ def build_comparison_chart(
     if is_normalized and y_domain:
         labels = _endpoint_labels(chart_df, y_domain)
         first_date, last_date = chart_df["Date"].min(), chart_df["Date"].max()
+        if first_date == last_date:
+            first_date -= pd.Timedelta(days=1)
         date_span = max(last_date - first_date, pd.Timedelta(days=1))
-        labels["LabelDate"] = last_date + date_span * 0.025
-        # Reserve room inside the plot for the ticker and return text.
-        x_scale = alt.Scale(domain=[first_date, last_date + date_span * 0.3])
+        # Reserve pixels for text, rather than a fraction of the date range.
+        # Vega's width signal keeps this allowance compact as Streamlit resizes.
+        text_width = min(float(labels["Label"].str.len().max()) * 6.5, 140)
+        reserved_pixels = text_width + 28
+        last_ms = f"toNumber(toDate('{last_date.isoformat()}'))"
+        span_ms = date_span.total_seconds() * 1000
+        denominator = f"max(width - {reserved_pixels}, 1)"
+        label_date_expression = f"{last_ms} + {span_ms} * 12 / {denominator}"
+        x_scale = alt.Scale(
+            domainMin=alt.ExprRef(expr=f"toDate('{first_date.isoformat()}')"),
+            domainMax=alt.ExprRef(
+                expr=f"{last_ms} + {span_ms} * {reserved_pixels} / {denominator}"
+            ),
+        )
 
     color = alt.Color(
         "Asset:N", sort=legend_order,
@@ -135,6 +148,7 @@ def build_comparison_chart(
         if not labels.empty:
             connectors = (
                 alt.Chart(labels)
+                .transform_calculate(LabelDate=label_date_expression)
                 .mark_rule(strokeWidth=1, opacity=0.5)
                 .encode(
                     x=alt.X("Date:T", title="Date"), x2="LabelDate:T",
@@ -144,6 +158,7 @@ def build_comparison_chart(
             )
             endpoint_text = (
                 alt.Chart(labels)
+                .transform_calculate(LabelDate=label_date_expression)
                 .mark_text(align="left", baseline="middle", dx=6, fontSize=11, limit=140)
                 .encode(
                     x=alt.X("LabelDate:T", title="Date"),
