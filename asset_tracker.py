@@ -16,20 +16,21 @@ Reference:
 
 from datetime import date, timedelta, datetime
 import time
-import contextlib
-import io
 import re
 
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import altair as alt
 import pandas_market_calendars as mcal
 import tzlocal
 
 from btc_macro.transforms import normalize_prices, prepare_price_data, to_chart_frame
-from btc_macro.yahoo import extract_close_prices
-# import requests
+from btc_macro.yahoo import (
+    apply_current_prices,
+    download_close_prices,
+    fetch_current_prices,
+    ticker_has_recent_data,
+)
 
 # Get local timezone automatically
 local_tz = tzlocal.get_localzone()
@@ -75,32 +76,19 @@ range_options = {
 @st.cache_data(ttl=24*3600)
 def is_valid_ticker(symbol):
     ''' Make a minimal request to validate ticker is valid '''
-    try:
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            df = yf.download(symbol, period="5d", progress=False)
-        return not df.empty
-    except Exception:
-        return False
+    return ticker_has_recent_data(symbol)
 
 # --- Fetch Ticker Price Data ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_yf_data(sel_tickers_key: tuple[str, ...], starting_date: str):
     """Return closing prices for tickers starting at starting_date (YYYY-MM-DD)."""
-    tickers_list = list(sel_tickers_key)
-    try:
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            downloaded = yf.download(tickers_list, start=starting_date, progress=False)
+    return download_close_prices(list(sel_tickers_key), starting_date)
 
-        if downloaded.empty:
-            raise RuntimeError(
-                "Yahoo Finance returned no data. It may be temporarily unavailable or rate limited."
-            )
 
-        return extract_close_prices(downloaded, tickers_list)
-    except Exception as e:
-        if isinstance(e, RuntimeError):
-            raise
-        raise RuntimeError(str(e)) from e
+@st.cache_data(ttl=300, show_spinner=False)
+def get_current_prices(tickers_key: tuple[str, ...]) -> dict[str, float]:
+    """Return briefly cached current prices for 24/7 assets."""
+    return fetch_current_prices(list(tickers_key))
 
 # --- Start Date Adjustment ---
 def adjust_for_non_trading_day(orig_date):
@@ -236,21 +224,13 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
     # --- Looks like we're good to proceed so sync selected_assets with filtered data ---
     selected_assets = filtered_data.columns.tolist()
 
-    # --- Patch last row with real-time data for 24/7 tickers like BTC-USD ---
-    for t in selected_assets:
-        if "-USD" in t:
-            try:
-                realtime_price = yf.Ticker(t).info.get("regularMarketPrice")
-                if pd.notna(realtime_price):
-                    # If last known data date is before today, append new row
-                    if filtered_data.index[-1].date() < local_today:
-                        new_row = pd.DataFrame({t: realtime_price}, index=[pd.Timestamp(local_today)])
-                        filtered_data = pd.concat([filtered_data, new_row])
-                    else:
-                        # If the row for today exists, just update the price
-                        filtered_data.loc[filtered_data.index[-1], t] = realtime_price
-            except Exception as e:
-                print(f"Error updating {t} with real-time price: {e}")
+    # Patch one shared row with briefly cached current prices for 24/7 assets.
+    crypto_assets = tuple(ticker for ticker in selected_assets if "-USD" in ticker)
+    filtered_data = apply_current_prices(
+        filtered_data,
+        get_current_prices(crypto_assets),
+        local_today,
+    )
 
     # --- Normalize Data if User Specified, otherwise graph actual asset price ---
     if is_norm:
