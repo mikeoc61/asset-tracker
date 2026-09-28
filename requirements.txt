@@ -1,3 +1,5 @@
+# Locked production dependencies for requirements.in.
+# Regenerate with: uv pip compile --python-version 3.12 requirements.in --output-file requirements.txt
 altair==5.5.0
 attrs==25.3.0
 beautifulsoup4==4.13.3
@@ -12,7 +14,6 @@ exchange_calendars==4.10
 frozendict==2.4.6
 gitdb==4.0.12
 GitPython==3.1.44
-holidays==0.70
 idna==3.10
 Jinja2==3.1.6
 jsonschema==4.23.0
@@ -28,19 +29,16 @@ pandas_market_calendars==5.0.0
 peewee==3.17.9
 pillow==11.1.0
 platformdirs==4.3.7
-plotly==6.0.1
 protobuf==5.29.4
 pyarrow==19.0.1
 pycparser==3.0
 pydeck==0.9.1
 pyluach==2.2.0
 python-dateutil==2.9.0.post0
-python-dotenv==1.1.0
 pytz==2025.2
 referencing==0.36.2
 requests==2.32.3
 rpds-py==0.24.0
-setuptools==80.10.2
 six==1.17.0
 smmap==5.0.2
 soupsieve==2.6
@@ -55,5 +53,4 @@ tzlocal==5.3.1
 urllib3==2.4.0
 watchdog==6.0.0
 websockets==16.0
-wheel==0.46.3
 yfinance==0.2.61

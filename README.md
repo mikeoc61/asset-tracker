@@ -31,6 +31,8 @@ tests/
   test_yahoo.py           Yahoo response and current-price tests
 .github/workflows/
   tests.yml               GitHub Actions continuous integration
+requirements.in           Direct production dependencies
+requirements.txt          Pinned production dependency lock
 ```
 
 ## Local setup
