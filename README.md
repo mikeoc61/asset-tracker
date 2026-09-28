@@ -24,6 +24,7 @@ ETFs, market indexes, commodities, and cryptocurrencies.
 ```text
 asset_tracker.py          Streamlit entry point and chart UI
 btc_macro/
+  charts.py               Interactive Altair chart construction
   dates.py                Calendar-date range calculations
   transforms.py           Price preparation and normalization
   yahoo.py                Yahoo Finance access and response handling

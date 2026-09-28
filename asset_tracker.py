@@ -19,12 +19,11 @@ import time
 import re
 
 import streamlit as st
-import pandas as pd
-import altair as alt
 import tzlocal
 
+from btc_macro.charts import build_comparison_chart
 from btc_macro.dates import RANGE_OPTIONS, range_start
-from btc_macro.transforms import normalize_prices, prepare_price_data, to_chart_frame
+from btc_macro.transforms import normalize_prices, prepare_price_data
 from btc_macro.yahoo import (
     apply_current_prices,
     download_close_prices,
@@ -211,122 +210,9 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
     else:
         chart_data = filtered_data.copy()
 
-    # --- Construct Altair Chart ---
-    chart_df = to_chart_frame(chart_data)
-
-    # Hover highlight (visual only)
-    hover_sel = alt.selection_point(
-        fields=["Asset"],
-        on="mouseover",
-        clear="mouseout",
-    )
-
-    # Click selection (NOT YET IMPLEMENTED)
-    click_sel = alt.selection_point(
-        name="asset_click",
-        fields=["Asset"],
-        on="click",
-        clear="dblclick",   # double-click clears selection
-    )
-
-    Y_MARGIN_PCT = 0.15  # 10–20% recommended
-
-    Y_DOMAIN = None
-    if is_norm:
-        vals = pd.to_numeric(chart_df["Value"], errors="coerce").dropna()
-        if not vals.empty:
-            y_min = float(vals.min())
-            y_max = float(vals.max())
-
-            # Avoid zero-range edge case
-            pad = (y_max - y_min) * Y_MARGIN_PCT if y_max != y_min else max(abs(y_max) * Y_MARGIN_PCT, 1.0)
-
-            Y_DOMAIN = [y_min - pad, y_max + pad]
-
-    y_axis = alt.Y(
-        "Value:Q",
-        title="% Change" if is_norm else "Price (USD)",
-        scale=alt.Scale(domain=Y_DOMAIN, zero=False, nice=True) if Y_DOMAIN else alt.Scale(zero=False, nice=True),
-        axis=alt.Axis(
-            orient="right",
-            labelColor="orange",
-            titleColor="orange",
-            labelAlign="center"
-        )
-    )
-
-    value_tooltip = alt.Tooltip(
-        "Value:Q",
-        title="% Change" if is_norm else "Price (USD)",
-        format=".2f" if is_norm else ",.2f"
-    )
-
-    # Compute legend order sorted from highest to lowest
-    last_values = (
-        chart_df
-        .dropna(subset=["Value"])
-        .sort_values("Date")
-        .groupby("Asset")["Value"]
-        .last()
-        .sort_values(ascending=False)
-    )
-
-    legend_order = last_values.index.tolist()
-
-    main_chart = (
-    alt.Chart(chart_df)
-    .mark_line()
-    .encode(
-        x=alt.X("Date:T", axis=alt.Axis(labelColor="orange", labelAlign="center")),
-        y=y_axis,
-        # color="Asset:N",
-        color=alt.Color(
-            "Asset:N",
-            sort=legend_order,
-            legend=alt.Legend(title="Asset (sorted)")
-        ),
-        opacity=alt.condition(hover_sel, alt.value(1.0), alt.value(0.25)),
-        strokeWidth=alt.condition(hover_sel, alt.value(3), alt.value(1.5)),
-        tooltip=[
-            alt.Tooltip("Date:T", title="Date"),
-            alt.Tooltip("Asset:N", title="Ticker"),
-            value_tooltip
-        ],
-    )
-    .add_params(hover_sel, click_sel)
-    )
-
-    def get_time_boundaries(dates, freq):
-        '''Draw Vertical lines for month or year boundaries'''
-        df = pd.DataFrame({"Date": pd.to_datetime(dates)})
-        df["Boundary"] = df["Date"].dt.to_period(freq)
-        df["Label"] = df["Date"].dt.strftime("%b %Y") if freq == "M" else df["Date"].dt.strftime("%Y")
-        return df.drop_duplicates("Boundary")[["Date", "Label"]]
-
-    # --- Adjust hash boundaries based on date range ---
-    F_VALUE = "M" if (days_back <= 365) else "Y"    # Use "M" for monthly or "Y" for yearly
-    boundaries_df = get_time_boundaries(chart_df["Date"], freq=F_VALUE)
-
-    # --- define verticle hash marks ---
-    rules = alt.Chart(boundaries_df).mark_rule(
-        color="gray", strokeDash=[3, 3]
-    ).encode(
-        x="Date:T"
-    )
-
-    layers = [main_chart, rules]
-
-    # --- Add emphasis to line at Y = 0 on the chart when using Normalized view ---
-    if is_norm:
-        baseline_rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(
-            strokeDash=[4, 4],
-            color="orange",
-        ).encode(y="y:Q")
-        layers.append(baseline_rule)
+    chart = build_comparison_chart(chart_data, is_norm, days_back)
 
 status_ph.empty()   # Clear and completely remove status update box
-
-chart = alt.layer(*layers).properties(width=800, height=600).interactive()
 
 chart_ph.altair_chart(chart, width="stretch")
 
