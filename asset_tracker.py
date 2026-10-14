@@ -21,6 +21,7 @@ import re
 import streamlit as st
 import tzlocal
 
+from btc_macro.assets import ASSET_NAMES, asset_label
 from btc_macro.charts import build_comparison_chart
 from btc_macro.dates import RANGE_OPTIONS, range_start, resolve_date_range
 from btc_macro.transforms import calculate_sma, normalize_prices, prepare_price_data
@@ -42,16 +43,15 @@ st.set_page_config(layout="wide")
 st.title("📈 Asset Comparison")
 
 # --- User Selected Options. Must be valid Ticker Symbol ---
-tickers = ["SPY", "EFA", "IWM", "QQQ", "STRK", "NVDA", "AAPL", "TSLA",
-           "^DJI", "DX-Y.NYB", "GC=F", "SI=F", "HG=F",
-           "BTC-USD", "ETH-USD", "SOL-USD"
-           ]
+tickers = list(ASSET_NAMES)
 default_tickers = ["SPY", "IWM", "EFA", "QQQ"]
 
 # --- Session_State initialization to establish stable defaults ---
 def init_state():
     st.session_state.setdefault("applied_params", None)   # dict of last-applied settings
     st.session_state.setdefault("ticker_list", tickers.copy())
+    # Include newly added built-ins in existing sessions, retaining custom symbols.
+    st.session_state.ticker_list = list(dict.fromkeys(tickers + st.session_state.ticker_list))
     st.session_state.setdefault("selected_assets", default_tickers.copy())
     st.session_state.setdefault("user_input", "")
     st.session_state.setdefault("add_ticker_error", "")
@@ -153,7 +153,11 @@ with st.sidebar:
     st.divider()
     st.multiselect(
         "Select Assets", 
-        options=list(st.session_state.ticker_list),
+        options=sorted(
+            st.session_state.ticker_list,
+            key=lambda ticker: (asset_label(ticker).casefold(), ticker.casefold()),
+        ),
+        format_func=asset_label,
         key="selected_assets"   # <- lets Streamlit manage and persist selection
     )
     st.text_input("Add ticker", key="user_input", on_change=add_ticker, placeholder="e.g., TSLA")
@@ -270,6 +274,8 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
 status_ph.empty()   # Clear and completely remove status update box
 
 chart_ph.altair_chart(chart, width="stretch")
+if "^TNX" in selected_assets:
+    st.caption("^TNX tracks the 10-year Treasury yield (%). Its normalized change is a relative change in yield, not a bond investment return.")
 if show_sma:
     st.caption("Dashed lines: 200-day SMA. Uses daily closes before today; current quotes are excluded.")
 

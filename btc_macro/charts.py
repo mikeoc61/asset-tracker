@@ -58,6 +58,8 @@ def build_comparison_chart(
             y_domain = [low - pad, high + pad]
 
     value_title = "% Change" if is_normalized else "Price (USD)"
+    if not is_normalized and "^TNX" in prices.columns:
+        value_title = "Yield (%)" if len(prices.columns) == 1 else "Price (USD) / Yield (%)"
     y_axis = alt.Y(
         "Value:Q",
         title=value_title,
@@ -154,7 +156,10 @@ def build_comparison_chart(
                     tooltip=[
                         alt.Tooltip("Date:T", title="Date"),
                         alt.Tooltip("Asset:N", title="Ticker"),
-                        alt.Tooltip("Value:Q", title="200-day SMA (USD)", format=",.2f"),
+                        alt.Tooltip(
+                            "Value:Q", format=",.2f",
+                            title="200-day SMA" if "^TNX" in prices.columns else "200-day SMA (USD)",
+                        ),
                     ],
                 )
                 .add_params(hover)

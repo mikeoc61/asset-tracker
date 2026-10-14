@@ -4,7 +4,7 @@
 [![Built with Streamlit](https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 
 An interactive Streamlit dashboard for comparing the performance of stocks,
-ETFs, market indexes, commodities, and cryptocurrencies.
+ETFs, mutual funds, market indexes, commodities, cryptocurrencies, and Treasury yields.
 
 [Open the hosted dashboard](https://mikeoc61-asset-tracker.streamlit.app/)
 
@@ -14,6 +14,14 @@ ETFs, market indexes, commodities, and cryptocurrencies.
 - Compare actual prices or normalized percentage returns.
 - Toggle a matching-color, dashed 200-day SMA for every asset in closing-price mode.
 - Select common assets or add a valid Yahoo Finance ticker.
+- Asset picker names (such as Bitcoin and Dollar Index) are capped at 15 characters,
+  including spaces. Edit `btc_macro/assets.py` to customize the name-to-ticker
+  mapping. Custom assets fall back to their ticker; long labels use an ellipsis.
+  Lookups and chart labels continue to use the full ticker symbol.
+- Picker options sort alphabetically by displayed name on every redraw, including
+  newly added custom tickers. Existing selections are preserved.
+- Built-in choices include Fidelity Growth (FDGRX), Fidelity Bal. (FBAKX),
+  Fidelity Semis (FSELX), and 10Y T-Note Yld (^TNX).
 - Choose preset ranges from one week through five years, or custom start/end dates.
 - Display mixed equity and cryptocurrency calendars on one chart.
 - Patch the latest available crypto quotes into the current-day view.
@@ -26,6 +34,7 @@ ETFs, market indexes, commodities, and cryptocurrencies.
 ```text
 asset_tracker.py          Streamlit entry point and chart UI
 btc_macro/
+  assets.py               Friendly asset names and compact picker labels
   charts.py               Interactive Altair chart construction
   dates.py                Calendar-date range calculations
   transforms.py           Price preparation and normalization
@@ -65,6 +74,10 @@ Run the dashboard:
 
 Then open [http://localhost:8501](http://localhost:8501).
 
+The repository disables file watching by default. To reload local code edits
+automatically, append `--server.fileWatcherType poll --server.runOnSave true`
+to the command above. Otherwise, restart the server after editing imported modules.
+
 ## Testing
 
 Run the unit tests:
@@ -90,6 +103,10 @@ clearing the application cache alone does not necessarily restart the process.
 
 ## Data notes
 
+- `^TNX` represents the 10-year Treasury yield in percent, not a bond price.
+  In closing-price mode, the chart identifies yield units when it is selected.
+  Its normalized change is a relative change in yield, not a bond investment return.
+- FSELX is Fidelity's Select Semiconductors portfolio, displayed as Fidelity Semis.
 - The 200-day SMA uses 200 observed daily closes per asset (trading sessions for
   equities, calendar days for crypto), calculated before filling calendar gaps.
   Enable **Show 200-day SMA** in **Closing Price (USD)** mode; it is disabled in
