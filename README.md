@@ -14,9 +14,13 @@ ETFs, mutual funds, market indexes, commodities, cryptocurrencies, and Treasury 
 - Compare actual prices or normalized percentage returns.
 - Toggle a matching-color, dashed 200-day SMA for every asset in closing-price mode.
 - Select common assets or add a valid Yahoo Finance ticker.
-- Asset picker names (such as Bitcoin and Dollar Index) are capped at 15 characters,
-  including spaces. Edit `btc_macro/assets.py` to customize the name-to-ticker
-  mapping. Custom assets fall back to their ticker; long labels use an ellipsis.
+- Asset picker names (such as Bitcoin and Dollar Index) are capped at 20 characters,
+  including spaces and any truncation ellipsis. Edit `btc_macro/assets.py` to customize the name-to-ticker
+  mapping. Custom assets use Yahoo Finance's readable name in both selected tags
+  and picker options, falling back to their ticker if the name is unavailable.
+  The lookup prefers Yahoo's short name, then its full name. Names are cached
+  for 24 hours and retained for the browser session; long labels use an ellipsis.
+  A failed name lookup does not prevent adding a valid ticker.
   Lookups and chart labels continue to use the full ticker symbol.
 - Picker options sort alphabetically by displayed name on every redraw, including
   newly added custom tickers. Existing selections are preserved.

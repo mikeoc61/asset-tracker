@@ -93,6 +93,22 @@ class CustomDateRangeAppTests(unittest.TestCase):
         self.assertEqual(set(data["Value"]), {100.0, 120.0})
         self.quotes.assert_not_called()
 
+    def test_custom_ticker_uses_readable_name_and_retains_lookup_symbol(self):
+        with patch("btc_macro.yahoo.ticker_has_recent_data", return_value=True), patch(
+            "btc_macro.yahoo.fetch_asset_name", return_value="Microsoft Corporation",
+        ) as names:
+            self.app.run()
+            self.app.text_input(key="user_input").set_value("msft").run()
+            self._assert_no_errors()
+            picker = self.app.multiselect[0]
+            self.assertIn("Microsoft Corporati…", picker.options)
+            self.assertIn("MSFT", picker.value)
+            self.assertIn("MSFT", self.download.call_args.args[0])
+            self.assertEqual(picker.options, sorted(picker.options, key=str.casefold))
+            self.app.run()
+            self._assert_no_errors()
+            names.assert_called_once_with("MSFT")
+
     def test_changing_end_date_uses_a_separate_cache_entry(self):
         self._choose_custom(self.start, self.end)
         calls = self.download.call_count

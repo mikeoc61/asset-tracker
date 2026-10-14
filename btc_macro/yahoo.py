@@ -55,6 +55,20 @@ def download_close_prices(
         raise RuntimeError(str(exc)) from exc
 
 
+def fetch_asset_name(symbol: str, ticker_factory: Optional[Callable] = None) -> str:
+    """Get a readable name without preventing use of an otherwise valid symbol."""
+    factory = ticker_factory or yf.Ticker
+    try:
+        info = factory(symbol).info
+        for field in ("shortName", "longName"):
+            name = info.get(field)
+            if isinstance(name, str) and name.strip():
+                return " ".join(name.split())
+    except Exception:
+        pass
+    return symbol
+
+
 def fetch_current_prices(
     tickers: list[str],
     ticker_factory: Optional[Callable] = None,

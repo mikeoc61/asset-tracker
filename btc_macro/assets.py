@@ -23,12 +23,12 @@ ASSET_NAMES = {
     "SOL-USD": "Solana",
 }
 
-MAX_ASSET_LABEL_LENGTH = 15
+MAX_ASSET_LABEL_LENGTH = 20
 
 
-def asset_label(ticker: str) -> str:
+def asset_label(ticker: str, custom_names: dict[str, str] | None = None) -> str:
     """Format a picker label, falling back to the symbol for custom assets."""
-    name = ASSET_NAMES.get(ticker, ticker)
+    name = ASSET_NAMES.get(ticker) or (custom_names or {}).get(ticker) or ticker
     if len(name) > MAX_ASSET_LABEL_LENGTH:
         return name[:MAX_ASSET_LABEL_LENGTH - 1] + "…"
     return name

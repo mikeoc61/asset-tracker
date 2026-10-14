@@ -15,6 +15,7 @@ Reference:
 """
 
 from datetime import date, datetime, timedelta
+from functools import partial
 import time
 import re
 
@@ -28,6 +29,7 @@ from btc_macro.transforms import calculate_sma, normalize_prices, prepare_price_
 from btc_macro.yahoo import (
     apply_current_prices,
     download_close_prices,
+    fetch_asset_name,
     fetch_current_prices,
     ticker_has_recent_data,
 )
@@ -54,6 +56,7 @@ def init_state():
     st.session_state.ticker_list = list(dict.fromkeys(tickers + st.session_state.ticker_list))
     st.session_state.setdefault("selected_assets", default_tickers.copy())
     st.session_state.setdefault("user_input", "")
+    st.session_state.setdefault("custom_asset_names", {})
     st.session_state.setdefault("add_ticker_error", "")
     st.session_state.setdefault("add_ticker_error_expires", 0.0)
 
@@ -64,6 +67,17 @@ init_state()
 def is_valid_ticker(symbol):
     ''' Make a minimal request to validate ticker is valid '''
     return ticker_has_recent_data(symbol)
+
+
+@st.cache_data(ttl=24*3600, show_spinner=False)
+def get_asset_name(symbol: str) -> str:
+    return fetch_asset_name(symbol)
+
+
+# Also resolve custom symbols added earlier in this browser session.
+for symbol in st.session_state.ticker_list:
+    if symbol not in ASSET_NAMES and symbol not in st.session_state.custom_asset_names:
+        st.session_state.custom_asset_names[symbol] = get_asset_name(symbol)
 
 # --- Fetch Ticker Price Data ---
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -113,6 +127,8 @@ def add_ticker():
 
     # Now do your existing validity check and add new ticker if valid
     if is_valid_ticker(new_ticker):
+        if new_ticker not in ASSET_NAMES:
+            st.session_state.custom_asset_names[new_ticker] = get_asset_name(new_ticker)
         if new_ticker not in st.session_state.ticker_list:
             st.session_state.ticker_list.append(new_ticker)
         if new_ticker not in st.session_state.selected_assets:
@@ -129,6 +145,7 @@ def add_ticker():
         st.session_state.add_ticker_error_expires = time.time() + 2
 
 # --- Create sidebar Widgets ---
+picker_label = partial(asset_label, custom_names=dict(st.session_state.custom_asset_names))
 with st.sidebar:
     selected_range = st.selectbox("Time Range", options=[*RANGE_OPTIONS, "Custom"])
     custom_start = custom_end = None
@@ -155,9 +172,9 @@ with st.sidebar:
         "Select Assets", 
         options=sorted(
             st.session_state.ticker_list,
-            key=lambda ticker: (asset_label(ticker).casefold(), ticker.casefold()),
+            key=lambda ticker: (picker_label(ticker).casefold(), ticker.casefold()),
         ),
-        format_func=asset_label,
+        format_func=picker_label,
         key="selected_assets"   # <- lets Streamlit manage and persist selection
     )
     st.text_input("Add ticker", key="user_input", on_change=add_ticker, placeholder="e.g., TSLA")

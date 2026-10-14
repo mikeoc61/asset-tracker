@@ -10,6 +10,7 @@ from btc_macro.yahoo import (
     download_close_prices,
     extract_close_prices,
     fetch_current_prices,
+    fetch_asset_name,
     ticker_has_recent_data,
 )
 
@@ -73,6 +74,16 @@ class ExtractClosePricesTests(unittest.TestCase):
 
 
 class YahooAccessTests(unittest.TestCase):
+    def test_asset_name_prefers_short_name_and_handles_missing_metadata(self):
+        factory = Mock(return_value=Mock(info={"shortName": " Microsoft  Corp ", "longName": "Microsoft Corporation"}))
+        self.assertEqual(fetch_asset_name("MSFT", factory), "Microsoft Corp")
+        factory.return_value.info = {"shortName": None, "longName": "Microsoft Corporation"}
+        self.assertEqual(fetch_asset_name("MSFT", factory), "Microsoft Corporation")
+        factory.return_value.info = {}
+        self.assertEqual(fetch_asset_name("MSFT", factory), "MSFT")
+        factory.side_effect = ConnectionError("offline")
+        self.assertEqual(fetch_asset_name("MSFT", factory), "MSFT")
+
     def test_download_close_prices_normalizes_download(self):
         columns = pd.MultiIndex.from_tuples(
             [("Close", "SPY")],
