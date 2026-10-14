@@ -14,7 +14,7 @@ Reference:
 - https://medium.com/@kasperjuunge/yfinance-10-ways-to-get-stock-data-with-python-6677f49e8282
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import time
 import re
 
@@ -23,7 +23,7 @@ import tzlocal
 
 from btc_macro.charts import build_comparison_chart
 from btc_macro.dates import RANGE_OPTIONS, range_start, resolve_date_range
-from btc_macro.transforms import normalize_prices, prepare_price_data
+from btc_macro.transforms import calculate_sma, normalize_prices, prepare_price_data
 from btc_macro.yahoo import (
     apply_current_prices,
     download_close_prices,
@@ -164,6 +164,13 @@ with st.sidebar:
         st.error(msg)
     st.divider()
     view = st.radio("Chart Type", ["Closing Price (USD)", "Normalized % Change"], index=1)
+    sma_enabled = st.toggle(
+        "Show 200-day SMA", value=False, key="show_sma",
+        disabled=view == "Normalized % Change",
+        help="Average of 200 daily closes per asset: trading sessions for equities, calendar days for crypto.",
+    )
+    if view == "Normalized % Change":
+        st.caption("200-day SMA is available in Closing Price (USD) mode.")
 
 # Create a placeholder slots for progress status updates and chart.
 chart_ph = st.empty()     # chart lives here
@@ -194,13 +201,16 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
 
     # --- Determine if we're using Narmalized or Price view ---
     is_norm = view == "Normalized % Change"
+    show_sma = sma_enabled and not is_norm
 
     days_back = (end_date - start_date).days
 
     # Downloading once also verifies connectivity and identifies missing tickers.
     status.write(f"Downloading price data: {', '.join(selected_assets)}")
     tickers_key = tuple(sorted(selected_assets))
-    start_key = start_date.isoformat()
+    # Two years gives ordinary market calendars ample room for 200 sessions.
+    fetch_start = start_date - timedelta(days=730) if show_sma else start_date
+    start_key = fetch_start.isoformat()
     end_key = end_date.isoformat()
 
     try:
@@ -211,7 +221,7 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
 
     # Align downloaded observations and remove assets with no usable data.
     filtered_data, all_nan_assets = prepare_price_data(
-        data,
+        data.loc[data.index >= start_date.isoformat()],
         selected_assets,
         start_date,
         end_date,
@@ -244,11 +254,24 @@ with status_ph.status("Fetching market data…", expanded=True) as status:
     else:
         chart_data = filtered_data.copy()
 
-    chart = build_comparison_chart(chart_data, is_norm, days_back)
+    sma_data = None
+    if show_sma:
+        averages = calculate_sma(data[selected_assets], local_today)
+        # Include prior averages when the view starts on a holiday or today.
+        sma_data = averages.reindex(
+            averages.index.union(chart_data.index),
+        ).ffill().reindex(chart_data.index)
+        unavailable = sma_data.columns[sma_data.isna().all()].tolist()
+        if unavailable:
+            st.caption(f"200-day SMA unavailable (fewer than 200 closes in fetched history): {', '.join(unavailable)}")
+
+    chart = build_comparison_chart(chart_data, is_norm, days_back, sma_data=sma_data)
 
 status_ph.empty()   # Clear and completely remove status update box
 
 chart_ph.altair_chart(chart, width="stretch")
+if show_sma:
+    st.caption("Dashed lines: 200-day SMA. Uses daily closes before today; current quotes are excluded.")
 
 st.caption(f"**Last updated:** {datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')} {local_tz}")
 st.caption(f"**Requested date range:** {start_date.isoformat()} to {end_date.isoformat()}")

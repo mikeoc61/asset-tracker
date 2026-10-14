@@ -4,7 +4,28 @@ from datetime import date
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
-from btc_macro.transforms import normalize_prices, prepare_price_data, to_chart_frame
+from btc_macro.transforms import calculate_sma, normalize_prices, prepare_price_data, to_chart_frame
+
+
+class MovingAverageTests(unittest.TestCase):
+    def test_counts_actual_closes_and_excludes_unfinished_today(self):
+        dates = pd.date_range("2024-01-01", periods=400)
+        prices = pd.DataFrame({"BTC": range(1, 401)}, index=dates, dtype=float)
+        sessions = dates[dates.dayofweek < 5]
+        prices["SPY"] = pd.Series(range(1, len(sessions) + 1), index=sessions, dtype=float)
+        prices["NEW"] = float("nan")
+        prices.loc[dates[-199:], "NEW"] = 42.0
+        original = prices.copy()
+        result = calculate_sma(prices, dates[-1].date())
+        self.assertNotIn(dates[-1], result.index)
+        self.assertTrue(pd.isna(result.loc[dates[198], "BTC"]))
+        self.assertEqual(result.loc[dates[199], "BTC"], 100.5)
+        self.assertTrue(pd.isna(result.loc[sessions[198], "SPY"]))
+        self.assertEqual(result.loc[sessions[199], "SPY"], 100.5)
+        self.assertTrue(result["NEW"].isna().all())
+        saturday = result.index[(result.index.dayofweek == 5) & (result.index > sessions[200])][0]
+        self.assertEqual(result.loc[saturday, "SPY"], result.loc[saturday - pd.Timedelta(days=1), "SPY"])
+        assert_frame_equal(prices, original)
 
 
 class PreparePriceDataTests(unittest.TestCase):

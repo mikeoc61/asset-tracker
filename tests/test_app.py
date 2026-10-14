@@ -106,6 +106,47 @@ class CustomDateRangeAppTests(unittest.TestCase):
         self.app.button[0].click().run()
         self.assertEqual(self.download.call_count, calls + 1)
 
+    def test_sma_toggle_history_modes_and_live_quote_exclusion(self):
+        def history(tickers, starting_date, *, ending_date):
+            dates = pd.date_range(starting_date, ending_date)
+            return pd.DataFrame({ticker: 100.0 for ticker in tickers}, index=dates)
+
+        self.download.side_effect = history
+        st.cache_data.clear()
+        self._choose_custom(self.today - timedelta(days=7), self.today, ["SPY", "BTC-USD"])
+        self.assertTrue(self.app.toggle[0].disabled)
+        self.assertFalse(self.app.toggle[0].value)
+        self.app.radio[0].set_value("Closing Price (USD)").run()
+        _, original = self._chart_data()
+        self.app.toggle[0].set_value(True).run()
+        self._assert_no_errors()
+        self.assertEqual(
+            self.download.call_args.args[1],
+            (self.today - timedelta(days=737)).isoformat(),
+        )
+        spec, prices = self._chart_data()
+        pd.testing.assert_frame_equal(prices, original)
+        self.assertEqual(len(spec["layer"]), 3)
+        proto = self.app.get("arrow_vega_lite_chart")[0].proto
+        name = spec["layer"][2]["data"]["name"]
+        dataset = next(item for item in proto.datasets if item.name == name)
+        sma = ipc.open_stream(io.BytesIO(dataset.data.data)).read_all().to_pandas()
+        self.assertEqual(set(sma["Value"]), {100.0})
+        self.assertEqual(set(sma["Asset"]), {"SPY", "BTC-USD"})
+        self.assertEqual(pd.to_datetime(sma["Date"]).min().date(), self.today - timedelta(days=7))
+
+        self.app.radio[0].set_value("Normalized % Change").run()
+        self._assert_no_errors()
+        self.assertTrue(self.app.toggle[0].disabled)
+        spec, _ = self._chart_data()
+        self.assertFalse(any(layer["mark"].get("strokeDash") == [6, 4] for layer in spec["layer"]))
+        self.app.radio[0].set_value("Closing Price (USD)").run()
+        self.assertTrue(self.app.toggle[0].value)
+        self.app.toggle[0].set_value(False).run()
+        self._assert_no_errors()
+        spec, _ = self._chart_data()
+        self.assertEqual(len(spec["layer"]), 2)
+
     def test_reversed_range_stops_before_download_and_can_be_corrected(self):
         self.app.selectbox[0].select("Custom").run()
         calls = self.download.call_count

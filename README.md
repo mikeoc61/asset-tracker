@@ -12,6 +12,7 @@ ETFs, market indexes, commodities, and cryptocurrencies.
 
 - Download closing-price history from Yahoo Finance.
 - Compare actual prices or normalized percentage returns.
+- Toggle a matching-color, dashed 200-day SMA for every asset in closing-price mode.
 - Select common assets or add a valid Yahoo Finance ticker.
 - Choose preset ranges from one week through five years, or custom start/end dates.
 - Display mixed equity and cryptocurrency calendars on one chart.
@@ -89,6 +90,14 @@ clearing the application cache alone does not necessarily restart the process.
 
 ## Data notes
 
+- The 200-day SMA uses 200 observed daily closes per asset (trading sessions for
+  equities, calendar days for crypto), calculated before filling calendar gaps.
+  Enable **Show 200-day SMA** in **Closing Price (USD)** mode; it is disabled in
+  normalized mode. Hover highlights an asset's price and SMA together.
+- SMA downloads include two extra years before the selected range. Assets with
+  fewer than 200 closes in that history have no SMA until enough closes exist.
+  Today's unfinished daily bar and current quotes are excluded; the latest
+  completed average is carried forward to today and across market holidays.
 - Normalized percentage change is the default chart view.
 - Each asset is normalized from its first valid value in the selected range.
 - Crypto trades continuously, while other assets follow their market calendars.

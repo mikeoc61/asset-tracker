@@ -6,6 +6,20 @@ from typing import Optional, Union
 import pandas as pd
 
 
+def calculate_sma(prices: pd.DataFrame, today: date) -> pd.DataFrame:
+    """Average 200 observed closes per asset, excluding today's unfinished bar."""
+    history = prices.copy()
+    history.index = pd.to_datetime(history.index)
+    history = history.sort_index()
+    history = history.loc[history.index < pd.Timestamp(today)]
+    result = pd.DataFrame(index=history.index, columns=history.columns, dtype=float)
+    for asset in history.columns:
+        closes = history[asset].dropna()
+        result[asset] = closes.rolling(200, min_periods=200).mean()
+    # Carry the calculated average across holidays, never count filled prices.
+    return result.ffill()
+
+
 def prepare_price_data(
     data: Union[pd.DataFrame, pd.Series],
     selected_assets: list[str],

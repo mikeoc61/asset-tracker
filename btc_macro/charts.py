@@ -43,6 +43,7 @@ def build_comparison_chart(
     prices: pd.DataFrame,
     is_normalized: bool,
     days_back: int,
+    sma_data: pd.DataFrame | None = None,
 ) -> alt.LayerChart:
     """Build the interactive comparison chart from already transformed prices."""
     chart_df = to_chart_frame(prices)
@@ -138,6 +139,27 @@ def build_comparison_chart(
     rules = alt.Chart(boundaries).mark_rule(color="gray", strokeDash=[3, 3]).encode(x="Date:T")
 
     layers = [main_chart, rules]
+    if not is_normalized and sma_data is not None:
+        sma_frame = to_chart_frame(sma_data.reindex(index=prices.index, columns=prices.columns))
+        if sma_frame["Value"].notna().any():
+            sma_chart = (
+                alt.Chart(sma_frame)
+                .mark_line(strokeDash=[6, 4], point=prices.index.nunique() == 1)
+                .encode(
+                    x=alt.X("Date:T", title="Date", scale=x_scale),
+                    y=y_axis,
+                    color=color,
+                    opacity=alt.condition(hover, alt.value(1.0), alt.value(0.25)),
+                    strokeWidth=alt.condition(hover, alt.value(3), alt.value(1.5)),
+                    tooltip=[
+                        alt.Tooltip("Date:T", title="Date"),
+                        alt.Tooltip("Asset:N", title="Ticker"),
+                        alt.Tooltip("Value:Q", title="200-day SMA (USD)", format=",.2f"),
+                    ],
+                )
+                .add_params(hover)
+            )
+            layers.append(sma_chart)
     if is_normalized:
         baseline = (
             alt.Chart(pd.DataFrame({"y": [0]}))

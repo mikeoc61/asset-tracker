@@ -39,6 +39,22 @@ class ComparisonChartTests(unittest.TestCase):
         spec = build_comparison_chart(prices, True, 7).to_dict()
         self.assertEqual(spec["layer"][0]["encoding"]["y"]["scale"]["domain"], [-1.0, 1.0])
 
+    def test_sma_shares_asset_colors_and_hover_and_only_appears_in_price_mode(self):
+        spec = build_comparison_chart(self.prices, False, 365, self.prices).to_dict()
+        self.assertEqual(len(spec["layer"]), 3)
+        price, sma = spec["layer"][0], spec["layer"][2]
+        self.assertEqual(sma["mark"]["strokeDash"], [6, 4])
+        for channel in ("color", "opacity", "strokeWidth"):
+            self.assertEqual(price["encoding"][channel], sma["encoding"][channel])
+        self.assertEqual(sma["encoding"]["tooltip"][-1]["title"], "200-day SMA (USD)")
+        normalized = build_comparison_chart(self.prices, True, 365, self.prices).to_dict()
+        self.assertEqual(len(normalized["layer"]), 5)
+
+    def test_unavailable_sma_does_not_add_empty_layer(self):
+        averages = self.prices * float("nan")
+        spec = build_comparison_chart(self.prices, False, 365, averages).to_dict()
+        self.assertEqual(len(spec["layer"]), 2)
+
     def test_single_day_range_has_visible_points_in_both_modes(self):
         prices = pd.DataFrame({"SPY": [100.0]}, index=pd.to_datetime(["2026-01-02"]))
         for is_normalized in (False, True):
