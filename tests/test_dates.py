@@ -6,6 +6,14 @@ from btc_macro.dates import range_start, resolve_date_range
 
 
 class DateRangeTests(unittest.TestCase):
+    def test_mtd_runs_from_first_of_current_month_through_today(self):
+        for today in (date(2026, 1, 1), date(2026, 10, 18), date(2024, 2, 29)):
+            with self.subTest(today=today):
+                self.assertEqual(
+                    resolve_date_range("MTD", today),
+                    (today.replace(day=1), today),
+                )
+
     def test_ytd_starts_on_january_first_including_on_new_years_day(self):
         for today in (date(2026, 1, 1), date(2026, 12, 31)):
             with self.subTest(today=today):

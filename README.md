@@ -123,7 +123,8 @@ clearing the application cache alone does not necessarily restart the process.
 - Each asset is normalized from its first valid value in the selected range.
 - Crypto trades continuously, while other assets follow their market calendars.
 - Requested ranges preserve weekend and holiday starts; each asset begins at its
-  first available observation. YTD starts on January 1.
+  first available observation. MTD (Month to Date) starts on the first of the
+  current month; YTD starts on January 1. Both end today.
 - For custom ranges, select **Custom** under **Time Range**, choose the start and
   end dates, and click **Apply dates**. Both dates are included; future dates and
   reversed ranges are not allowed. A single-day range displays points. Applied

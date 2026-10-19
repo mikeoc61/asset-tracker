@@ -6,6 +6,7 @@ from typing import Optional
 
 RANGE_OPTIONS: dict[str, Optional[int]] = {
     "1 Week": 7,
+    "MTD": None,
     "1 Month": 31,
     "3 Months": 93,
     "6 Months": 182,
@@ -19,6 +20,8 @@ RANGE_OPTIONS: dict[str, Optional[int]] = {
 def range_start(selected_range: str, today: date) -> date:
     """Keep calendar starts intact; each asset supplies its own trading dates."""
     days = RANGE_OPTIONS[selected_range]
+    if selected_range == "MTD":
+        return today.replace(day=1)
     if days is None:
         return date(today.year, 1, 1)
     return today - timedelta(days=days)

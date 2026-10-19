@@ -202,6 +202,14 @@ class CustomDateRangeAppTests(unittest.TestCase):
         self.assertEqual(self.app.date_input(key="custom_start").value, self.start)
         self.assertEqual(self.app.date_input(key="custom_end").value, self.end)
 
+    def test_mtd_picker_requests_current_month_through_today(self):
+        self.app.selectbox[0].select("MTD").run()
+        self._assert_no_errors()
+        self.assertEqual(
+            self.download.call_args.args[1], self.today.replace(day=1).isoformat(),
+        )
+        self.assertEqual(self.download.call_args.kwargs["ending_date"], self.today.isoformat())
+
     def test_no_data_error_does_not_add_quotes_or_render_a_chart(self):
         self.app.selectbox[0].select("Custom").run()
         self.download.side_effect = RuntimeError("Yahoo Finance returned no data for the selected range.")
